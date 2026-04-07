@@ -12,7 +12,6 @@ import re
 st.set_page_config(layout='wide', page_title="3rd Shift Schedule Generator")
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_FILE = BASE_DIR / "today_active_workers_corrected.csv"
 
 def get_base64_logo(img_path):
     if not os.path.exists(img_path):
@@ -81,19 +80,15 @@ def canon_basic(s: str) -> str:
     s = re.sub(r'\s+', ' ', s).strip()
     return s
 
-def load_data():
-    if not os.path.exists(DATA_FILE):
-        st.error(f"{DATA_FILE} not found.")
-        return pd.DataFrame()
+def load_data(uploaded_file):
     try:
-        df = pd.read_csv(DATA_FILE, encoding="utf-8-sig")
+        df = pd.read_csv(uploaded_file, encoding="utf-8-sig")
     except UnicodeDecodeError:
-        df = pd.read_csv(DATA_FILE, encoding="cp1252")
-
+        uploaded_file.seek(0)
+        df = pd.read_csv(uploaded_file, encoding="cp1252")
     df.insert(0, '__roster_index', range(len(df)))
     df.columns = [c.strip() for c in df.columns]
     df = normalize_columns(df)
-
     df['Name'] = df['Name'].astype(str).str.strip()
     role_cols = [c for c in REQUIRED_COLS if c not in ['Name','Shift']]
     for c in role_cols:
@@ -102,14 +97,19 @@ def load_data():
             .replace({'nan':'', 'none':'', 'no':'', 'false':'', '0':''})
         )
     df['Shift'] = df['Shift'].astype(str).map(canon_basic)
-
     df = df[df['Name'].str.len() > 0]
     df = df[df['Name'].str.lower() != 'nan']
     df = df.sort_values('__roster_index').drop_duplicates(subset=['Name'], keep='first').reset_index(drop=True)
     return df
 
-df = load_data()
+uploaded_file = st.file_uploader("Upload your active workers CSV", type=["csv"])
+if uploaded_file is None:
+    st.info("Please upload your active workers CSV to get started.")
+    st.stop()
+
+df = load_data(uploaded_file)
 if df.empty:
+    st.error("Could not load file. Check the format.")
     st.stop()
 
 days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
@@ -268,7 +268,12 @@ def skills_count(row):
 def pick(df_in, cond):
     if df_in.empty:
         return df_in.copy()
-    mask = df_in.apply(cond, axis=1)
+    def safe_cond(r):
+        try:
+            return bool(cond(r))
+        except Exception:
+            return False
+    mask = df_in.apply(safe_cond, axis=1)
     return df_in[mask.reindex(df_in.index, fill_value=False)]
 
 def priority_names(df_pool, already_assigned, reserve_cls=False, limit=None):
