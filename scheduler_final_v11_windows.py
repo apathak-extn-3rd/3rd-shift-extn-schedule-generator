@@ -612,6 +612,7 @@ if st.button("Generate Weekly Schedule"):
     prev_iso = set()
     prev_float = set()
     prev_qs = set()
+    weekly_poc_used = set()  # tracks everyone who did POC this week
 
     for day in days:
         pool = working_pool(day)
@@ -662,6 +663,7 @@ if st.button("Generate Weekly Schedule"):
                           and r['HZN'].strip().lower() == 'yes'
                           and r['Name'] not in pgd_reserved
                           and r['Name'] not in hzn_ext_reserved
+                          and r['Name'] not in weekly_poc_used
             )
             swap_reserved = priority_names_excluding(
                 swap_reserve_pool, assigned, exclude_set=prev_hzn_poc, reserve_cls=True, limit=4
@@ -759,7 +761,9 @@ if st.button("Generate Weekly Schedule"):
         if day not in ['Sun','Mon']:
             dne_pool = pick(
                 cls_pool,
-                lambda r: r['POC'].strip().lower() == 'yes' and r['Name'] not in assigned
+                lambda r: r['POC'].strip().lower() == 'yes'
+                          and r['Name'] not in assigned
+                          and r['Name'] not in weekly_poc_used
             )
             for name in priority_names_excluding(dne_pool, assigned, exclude_set=prev_dne, reserve_cls=False, limit=1):
                 safe_assign(assign_map, assigned, day, name, 'DNEasy')
@@ -814,6 +818,12 @@ if st.button("Generate Weekly Schedule"):
                     n,
                     backup_label_for_row(row)
                 ))
+
+        # Update weekly POC tracker — anyone who did HZN POC Swap or DNEasy today
+        weekly_poc_used.update(
+            n for (dkey, n), roles in assign_map.items()
+            if dkey == day and any('HZN POC Swap' in r or r == 'DNEasy' for r in roles)
+        )
 
         prev_tiu = set(
             [n for (dkey, n), roles in assign_map.items() if dkey == day and any(r == 'TIU' for r in roles)]
