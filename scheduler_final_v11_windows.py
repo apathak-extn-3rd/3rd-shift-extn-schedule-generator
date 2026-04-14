@@ -80,16 +80,23 @@ def canon_basic(s: str) -> str:
     s = re.sub(r'\s+', ' ', s).strip()
     return s
 
-DATA_FILE = BASE_DIR / "today_active_workers_corrected.csv"
+DATA_FILE = BASE_DIR / "today_active_workers_08APR2026.xlsx"
 
 def load_data():
     if not os.path.exists(DATA_FILE):
         st.error(f"{DATA_FILE} not found.")
         return pd.DataFrame()
     try:
-        df = pd.read_csv(DATA_FILE, encoding="utf-8-sig")
-    except UnicodeDecodeError:
-        df = pd.read_csv(DATA_FILE, encoding="cp1252")
+        if str(DATA_FILE).endswith('.xlsx'):
+            df = pd.read_excel(DATA_FILE)
+        else:
+            try:
+                df = pd.read_csv(DATA_FILE, encoding="utf-8-sig")
+            except UnicodeDecodeError:
+                df = pd.read_csv(DATA_FILE, encoding="cp1252")
+    except Exception as e:
+        st.error(f"Could not load file: {e}")
+        return pd.DataFrame()
     df.insert(0, '__roster_index', range(len(df)))
     df.columns = [c.strip() for c in df.columns]
     df = normalize_columns(df)
@@ -274,7 +281,7 @@ def pick(df_in, cond):
     mask = df_in.apply(safe_cond, axis=1)
     return df_in[mask.reindex(df_in.index, fill_value=False)]
 
-def priority_names(df_pool, already_assigned, reserve_cls=False, limit=None):
+def priority_names(df_pool, already_assigned, reserve_cls=False, limit=None, prefer_more_skills=False):
     if df_pool is None or df_pool.empty:
         return []
     pool = df_pool[~df_pool['Name'].isin(already_assigned)].copy()
@@ -288,7 +295,9 @@ def priority_names(df_pool, already_assigned, reserve_cls=False, limit=None):
     )
 
     def take(frame, n=None):
-        frame = frame.sort_values(['_yes_count', '_rand'], ascending=[True, True])
+        # prefer_more_skills: versatile people go to ISO, leaving specialists free for other roles
+        asc = not prefer_more_skills
+        frame = frame.sort_values(['_yes_count', '_rand'], ascending=[asc, True])
         names = frame['Name'].tolist()
         return names if n is None else names[:n]
 
@@ -304,20 +313,20 @@ def priority_names(df_pool, already_assigned, reserve_cls=False, limit=None):
 
     return take(pool, limit)
 
-def priority_names_excluding(df_pool, already_assigned, exclude_set=None, reserve_cls=False, limit=None):
+def priority_names_excluding(df_pool, already_assigned, exclude_set=None, reserve_cls=False, limit=None, prefer_more_skills=False):
     exclude_set = exclude_set or set()
     if df_pool is None or df_pool.empty:
         return []
     base = df_pool[~df_pool['Name'].isin(exclude_set)]
-    primary = priority_names(base, already_assigned, reserve_cls, limit)
+    primary = priority_names(base, already_assigned, reserve_cls, limit, prefer_more_skills)
     if limit is None or len(primary) >= limit:
         return primary
     need = limit - len(primary)
     topup = df_pool[df_pool['Name'].isin(exclude_set)]
-    return primary + priority_names(topup, already_assigned.union(set(primary)), reserve_cls, need)
+    return primary + priority_names(topup, already_assigned.union(set(primary)), reserve_cls, need, prefer_more_skills)
 
 def block_rank(workflow: str) -> float:
-    # Display order: ISO (1) -> QS zones (2) -> Floater (3) -> everything else
+    # Display order: ISO > QS > PGD > TIH > HZN > Floater > POC
     w = str(workflow)
     if w.startswith('ISO '):
         return 1
@@ -325,22 +334,22 @@ def block_rank(workflow: str) -> float:
         return 2
     if w.startswith('QS Floater'):
         return 2.5
-    if w.startswith('Floater'):
+    if w.startswith('PGD'):
         return 3
-    if w.startswith('TIU'):
+    if w.startswith('TIH'):
         return 4
+    if w.startswith('TIU'):
+        return 4.5
     if w.startswith('HZN EXT/NORM/DIL'):
         return 5
-    if w.startswith('HZN POC Swap'):
+    if w.startswith('Floater'):
         return 6
-    if w.startswith('DNEasy'):
+    if w.startswith('HZN POC Swap'):
         return 7
-    if w.startswith('TIH'):
-        return 8
-    if w.startswith('PGD'):
-        return 9
+    if w.startswith('DNEasy/Mix-1') or w.startswith('DNEasy'):
+        return 7.5
     if w.startswith('POC'):
-        return 9.5
+        return 8
     return 10
 
 def zone_rank(workflow: str) -> int:
@@ -613,6 +622,7 @@ if st.button("Generate Weekly Schedule"):
     prev_float = set()
     prev_qs = set()
     weekly_poc_used = set()  # tracks everyone who did POC this week
+    weekly_iso_count = {}    # name -> how many times they've done ISO this week
 
     for day in days:
         pool = working_pool(day)
@@ -689,8 +699,18 @@ if st.button("Generate Weekly Schedule"):
         QS_MIN  = 4
 
         # Single-pass: assign ISO first, then Float from remaining, no double simulation
-        iso_pool_filtered = pick(pool, lambda r: r['ISO'].strip().lower() == 'yes' and r['Name'] not in reserved)
-        iso_all = priority_names(iso_pool_filtered, assigned, reserve_cls=True, limit=len(ISO_ZONE_LIST))
+        # ISO frequency cap: >2 quals = max 1x/week, <=2 quals = max 2x/week
+        def iso_freq_ok(r):
+            n = r['Name']
+            count = weekly_iso_count.get(n, 0)
+            quals = sum(1 for c in CORE_ROLES if str(r.get(c, '')).strip().lower() == 'yes')
+            max_times = 1 if quals > 2 else 2
+            return count < max_times
+
+        iso_pool_filtered = pick(pool, lambda r: r['ISO'].strip().lower() == 'yes'
+                                  and r['Name'] not in reserved
+                                  and iso_freq_ok(r))
+        iso_all = priority_names_excluding(iso_pool_filtered, assigned, exclude_set=prev_iso, reserve_cls=True, limit=len(ISO_ZONE_LIST), prefer_more_skills=True)
 
         float_pool_filtered = pick(pool, lambda r: r['FLOAT'].strip().lower() == 'yes'
                                    and r['Name'] not in reserved
@@ -757,16 +777,19 @@ if st.button("Generate Weekly Schedule"):
             for name in start_poc:
                 safe_assign(assign_map, assigned, day, name, 'HZN POC Swap (First Half POC / Second Half HZN)')
 
-        # --- 5. DNEasy ---
+        # --- 5. DNEasy (Tue-Sat) ---
+        # Requires CLS qualification. If POC/HZN Swap is happening today,
+        # must ensure the DNEasy person is CLS-qualified (they run Mix-1/DNEasy).
         if day not in ['Sun','Mon']:
             dne_pool = pick(
-                cls_pool,
-                lambda r: r['POC'].strip().lower() == 'yes'
+                pool,
+                lambda r: r['CLS'].strip().lower() == 'yes'
+                          and r['POC'].strip().lower() == 'yes'
                           and r['Name'] not in assigned
                           and r['Name'] not in weekly_poc_used
             )
             for name in priority_names_excluding(dne_pool, assigned, exclude_set=prev_dne, reserve_cls=False, limit=1):
-                safe_assign(assign_map, assigned, day, name, 'DNEasy')
+                safe_assign(assign_map, assigned, day, name, 'DNEasy/Mix-1')
 
         # --- 6. TIH enforcement ---
         enforce_tih_minimum(assign_map, day, pool, assigned)
@@ -819,17 +842,22 @@ if st.button("Generate Weekly Schedule"):
                     backup_label_for_row(row)
                 ))
 
-        # Update weekly POC tracker — anyone who did HZN POC Swap or DNEasy today
+        # Update weekly POC tracker
         weekly_poc_used.update(
             n for (dkey, n), roles in assign_map.items()
-            if dkey == day and any('HZN POC Swap' in r or r == 'DNEasy' for r in roles)
+            if dkey == day and any('HZN POC Swap' in r or r == 'DNEasy/Mix-1' or r == 'DNEasy' for r in roles)
         )
+
+        # Update weekly ISO count
+        for (dkey, n), roles in assign_map.items():
+            if dkey == day and any(r.startswith('ISO Zone') for r in roles):
+                weekly_iso_count[n] = weekly_iso_count.get(n, 0) + 1
 
         prev_tiu = set(
             [n for (dkey, n), roles in assign_map.items() if dkey == day and any(r == 'TIU' for r in roles)]
         )
         prev_dne = set(
-            [n for (dkey, n), roles in assign_map.items() if dkey == day and any(r == 'DNEasy' for r in roles)]
+            [n for (dkey, n), roles in assign_map.items() if dkey == day and any(r == 'DNEasy/Mix-1' or r == 'DNEasy' for r in roles)]
         )
         prev_pgd = set(
             [n for (dkey, n), roles in assign_map.items() if dkey == day and any(r == 'PGD' for r in roles)]
