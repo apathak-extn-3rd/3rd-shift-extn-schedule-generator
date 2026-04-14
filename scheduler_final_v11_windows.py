@@ -629,6 +629,8 @@ if st.button("Generate Weekly Schedule"):
         # Each step excludes the previous to guarantee no double-assignments.
         pgd_reserved          = set()
         pgd_reserved_names    = []
+        dne_reserved          = set()
+        dne_reserved_names    = []
         hzn_ext_reserved      = set()
         hzn_ext_reserved_names = []
         hzn_poc_reserved      = set()
@@ -637,7 +639,6 @@ if st.button("Generate Weekly Schedule"):
         if day not in ['Sun', 'Mon']:
             # 1. PGD (1 person) — picked FIRST, added to assigned immediately so nothing steals them
             pgd_pool_all = pool[pool['PGD'] == 'yes'].copy()
-            # prefer someone not used yesterday, but fall back if needed
             pgd_candidates = [n for n in pgd_pool_all['Name'].tolist() if n not in prev_pgd]
             if not pgd_candidates:
                 pgd_candidates = pgd_pool_all['Name'].tolist()
@@ -645,7 +646,21 @@ if st.button("Generate Weekly Schedule"):
             if pgd_pick:
                 pgd_reserved_names = [pgd_pick]
                 pgd_reserved = {pgd_pick}
-                assigned.add(pgd_pick)  # lock in NOW
+                assigned.add(pgd_pick)
+
+            # 1b. DNEasy/Mix-1 (1 CLS+POC person) — reserved before HZN POC Swap eats them all
+            dne_reserve_pool = pick(
+                pool,
+                lambda r: r['CLS'].strip().lower() == 'yes'
+                          and r['POC'].strip().lower() == 'yes'
+                          and r['Name'] not in pgd_reserved
+                          and r['Name'] not in weekly_poc_used
+            )
+            dne_reserved_names = priority_names_excluding(
+                dne_reserve_pool, assigned, exclude_set=prev_dne, reserve_cls=False, limit=1
+            )
+            dne_reserved = set(dne_reserved_names)
+            assigned.update(dne_reserved)  # lock in immediately
 
             # 2. HZN EXT/NORM/DIL (2-3 people, non-POC preferred, exclude PGD person)
             hzn_ext_reserve_pool = pick(
@@ -666,6 +681,7 @@ if st.button("Generate Weekly Schedule"):
                           and r['HZN'].strip().lower() == 'yes'
                           and r['Name'] not in pgd_reserved
                           and r['Name'] not in hzn_ext_reserved
+                          and r['Name'] not in dne_reserved
                           and r['Name'] not in weekly_poc_used
             )
             swap_reserved = priority_names_excluding(
@@ -686,7 +702,7 @@ if st.button("Generate Weekly Schedule"):
 
         # --- 1. ISO + Floater paired assignment, then QS ---
         # reserved set: nobody in here can be touched by ISO/Float/QS
-        reserved = hzn_poc_reserved | hzn_ext_reserved | pgd_reserved
+        reserved = hzn_poc_reserved | hzn_ext_reserved | pgd_reserved | dne_reserved
 
         ISO_MIN = 4
         QS_MIN  = 4
@@ -770,19 +786,10 @@ if st.button("Generate Weekly Schedule"):
             for name in start_poc:
                 safe_assign(assign_map, assigned, day, name, 'HZN POC Swap (First Half POC / Second Half HZN)')
 
-        # --- 5. DNEasy (Tue-Sat) ---
-        # Requires CLS qualification. If POC/HZN Swap is happening today,
-        # must ensure the DNEasy person is CLS-qualified (they run Mix-1/DNEasy).
+        # --- 5. DNEasy/Mix-1 (Tue-Sat, pre-reserved CLS+POC person) ---
         if day not in ['Sun','Mon']:
-            dne_pool = pick(
-                pool,
-                lambda r: r['CLS'].strip().lower() == 'yes'
-                          and r['POC'].strip().lower() == 'yes'
-                          and r['Name'] not in assigned
-                          and r['Name'] not in weekly_poc_used
-            )
-            for name in priority_names_excluding(dne_pool, assigned, exclude_set=prev_dne, reserve_cls=False, limit=1):
-                safe_assign(assign_map, assigned, day, name, 'DNEasy/Mix-1')
+            for name in dne_reserved_names:
+                assign_map[(day, name)].append('DNEasy/Mix-1')
 
         # --- 6. TIH enforcement ---
         enforce_tih_minimum(assign_map, day, pool, assigned)
