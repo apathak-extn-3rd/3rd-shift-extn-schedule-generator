@@ -615,7 +615,7 @@ if st.button("Generate Weekly Schedule"):
     prev_float = set()
     prev_qs = set()
     weekly_poc_used = set()  # tracks everyone who did POC this week
-    weekly_iso_count = {}    # ISO assignments this week per person
+    weekly_iso_count = {}    # ISO count per person this week
     for day in days:
         pool = working_pool(day)
         working_names = set(pool['Name'])
@@ -711,18 +711,52 @@ if st.button("Generate Weekly Schedule"):
             n = r['Name']
             count = weekly_iso_count.get(n, 0)
             quals = sum(1 for c in CORE_ROLES if str(r.get(c, '')).strip().lower() == 'yes')
-            max_times = 2 if quals <= 2 else 1
-            return count < max_times
+            return count < (2 if quals <= 2 else 1)
 
-        iso_pool_filtered = pick(pool, lambda r: r['ISO'].strip().lower() == 'yes'
+        if day == 'Sun':
+            # Sunday: 7 people on Tecan Maintenance/Rack Disposal — ISO+FLOAT qualified
+            # Does NOT count toward weekly ISO cap
+            sun_pool = pick(pool, lambda r: r['ISO'].strip().lower() == 'yes'
+                            and r['FLOAT'].strip().lower() == 'yes'
+                            and r['Name'] not in reserved)
+            sun_names = priority_names_excluding(sun_pool, assigned, exclude_set=prev_iso, reserve_cls=True, limit=7, prefer_more_skills=True)
+            for i, name in enumerate(sun_names):
+                safe_assign(assign_map, assigned, day, name, f'Tecan Maintenance/Rack Disposal {ISO_ZONE_LIST[i]}')
+            iso_all = []
+            float_all = []
+
+        elif day == 'Mon':
+            # Monday: paired zones — A+B, C+D, E+F (3 people), counts toward ISO cap
+            mon_iso_pool = pick(pool, lambda r: r['ISO'].strip().lower() == 'yes' and r['Name'] not in reserved)
+            mon_iso_capped = pick(mon_iso_pool, iso_under_cap)
+            mon_iso_filtered = mon_iso_capped if len(mon_iso_capped) >= 3 else mon_iso_pool
+            mon_iso_names = priority_names_excluding(mon_iso_filtered, assigned, exclude_set=prev_iso, reserve_cls=True, limit=3, prefer_more_skills=True)
+            zone_pairs = [('Zone A', 'Zone B'), ('Zone C', 'Zone D'), ('Zone E', 'Zone F')]
+            for i, name in enumerate(mon_iso_names):
+                if i < len(zone_pairs):
+                    za, zb = zone_pairs[i]
+                    safe_assign(assign_map, assigned, day, name, f'ISO {za} / {zb}')
+            # 2 Floaters on Monday
+            mon_float_pool = pick(pool, lambda r: r['FLOAT'].strip().lower() == 'yes'
                                   and r['Name'] not in reserved
-                                  and iso_under_cap(r))
-        iso_all = priority_names_excluding(iso_pool_filtered, assigned, exclude_set=prev_iso, reserve_cls=True, limit=len(ISO_ZONE_LIST), prefer_more_skills=True)
+                                  and r['Name'] not in set(mon_iso_names))
+            mon_float_names = priority_names(mon_float_pool, assigned, reserve_cls=True, limit=2)
+            for i, name in enumerate(mon_float_names):
+                safe_assign(assign_map, assigned, day, name, f'Floater {i+1}')
+            iso_all = mon_iso_names
+            float_all = mon_float_names
 
-        float_pool_filtered = pick(pool, lambda r: r['FLOAT'].strip().lower() == 'yes'
-                                   and r['Name'] not in reserved
-                                   and r['Name'] not in set(iso_all))
-        float_all = priority_names(float_pool_filtered, assigned | set(iso_all), reserve_cls=True, limit=len(ISO_ZONE_LIST))
+        else:
+            # Tue-Sat: normal ISO + Float assignment with weekly cap
+            iso_pool_all = pick(pool, lambda r: r['ISO'].strip().lower() == 'yes' and r['Name'] not in reserved)
+            iso_pool_capped = pick(iso_pool_all, iso_under_cap)
+            iso_pool_filtered = iso_pool_capped if len(iso_pool_capped) >= ISO_MIN else iso_pool_all
+            iso_all = priority_names_excluding(iso_pool_filtered, assigned, exclude_set=prev_iso, reserve_cls=True, limit=len(ISO_ZONE_LIST), prefer_more_skills=True)
+
+            float_pool_filtered = pick(pool, lambda r: r['FLOAT'].strip().lower() == 'yes'
+                                       and r['Name'] not in reserved
+                                       and r['Name'] not in set(iso_all))
+            float_all = priority_names(float_pool_filtered, assigned | set(iso_all), reserve_cls=True, limit=len(ISO_ZONE_LIST))
 
         max_pairs = min(len(iso_all), len(float_all), len(ISO_ZONE_LIST))
         n_pairs   = min(ISO_MIN, max_pairs)
@@ -741,12 +775,13 @@ if st.button("Generate Weekly Schedule"):
             else:
                 break
 
-        # Commit — same lists, no re-seeding, guaranteed consistent
-        for i, name in enumerate(iso_all[:n_pairs]):
-            safe_assign(assign_map, assigned, day, name, f'ISO {ISO_ZONE_LIST[i]}')
+        # Commit ISO/Float — only for Tue-Sat (Sun/Mon handled above)
+        if day not in ['Sun', 'Mon']:
+            for i, name in enumerate(iso_all[:n_pairs]):
+                safe_assign(assign_map, assigned, day, name, f'ISO {ISO_ZONE_LIST[i]}')
 
-        for i, name in enumerate(float_all[:n_pairs]):
-            safe_assign(assign_map, assigned, day, name, f'Floater {i+1}')
+            for i, name in enumerate(float_all[:n_pairs]):
+                safe_assign(assign_map, assigned, day, name, f'Floater {i+1}')
 
         # --- 2. QS (Zones 1-13, strictly sequential, no gaps) ---
         qs_pool  = pick(pool, lambda r: r['QS'].strip().lower() == 'yes'
@@ -763,11 +798,20 @@ if st.button("Generate Weekly Schedule"):
             safe_assign(assign_map, assigned, day, name, f'QS Floater {idx}')
 
         # --- 3. TIU ---
-        tiu_count = 1 if day in ['Sun','Mon'] else 2
         cls_pool = pick(pool, lambda r: r['CLS'].strip().lower() == 'yes' and r['Name'] not in assigned)
         tiu_pool = pick(cls_pool, lambda r: r['TIU'].strip().lower() == 'yes')
-        for name in priority_names_excluding(tiu_pool, assigned, exclude_set=prev_tiu, reserve_cls=False, limit=tiu_count):
-            safe_assign(assign_map, assigned, day, name, 'TIU')
+        if day == 'Mon':
+            # Monday: 1 CLS on TIU/Stickers
+            for name in priority_names_excluding(tiu_pool, assigned, exclude_set=prev_tiu, reserve_cls=False, limit=1):
+                safe_assign(assign_map, assigned, day, name, 'TIU/Stickers')
+        elif day == 'Sun':
+            tiu_count = 1
+            for name in priority_names_excluding(tiu_pool, assigned, exclude_set=prev_tiu, reserve_cls=False, limit=tiu_count):
+                safe_assign(assign_map, assigned, day, name, 'TIU')
+        else:
+            tiu_count = 2
+            for name in priority_names_excluding(tiu_pool, assigned, exclude_set=prev_tiu, reserve_cls=False, limit=tiu_count):
+                safe_assign(assign_map, assigned, day, name, 'TIU')
 
         # --- 4. HZN EXT/NORM/DIL (2-3 people, pre-reserved) ---
         for name in hzn_ext_reserved_names:
@@ -847,8 +891,9 @@ if st.button("Generate Weekly Schedule"):
         )
 
         for (dkey, n), roles in assign_map.items():
-            if dkey == day and any(r.startswith('ISO Zone') for r in roles):
-                weekly_iso_count[n] = weekly_iso_count.get(n, 0) + 1
+            if dkey == day and any(r.startswith('ISO Zone') or r.startswith('ISO ') for r in roles):
+                if day != 'Sun':  # Sunday Tecan Maintenance doesn't count toward cap
+                    weekly_iso_count[n] = weekly_iso_count.get(n, 0) + 1
 
         prev_tiu = set(
             [n for (dkey, n), roles in assign_map.items() if dkey == day and any(r == 'TIU' for r in roles)]
