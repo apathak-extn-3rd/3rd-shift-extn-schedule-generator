@@ -615,8 +615,7 @@ if st.button("Generate Weekly Schedule"):
     prev_float = set()
     prev_qs = set()
     weekly_poc_used = set()  # tracks everyone who did POC this week
-    weekly_iso_count = {}    # name -> how many times they've done ISO this week
-
+    weekly_iso_count = {}    # ISO assignments this week per person
     for day in days:
         pool = working_pool(day)
         working_names = set(pool['Name'])
@@ -708,17 +707,16 @@ if st.button("Generate Weekly Schedule"):
         QS_MIN  = 4
 
         # Single-pass: assign ISO first, then Float from remaining, no double simulation
-        # ISO frequency cap: >2 quals = max 1x/week, <=2 quals = max 2x/week
-        def iso_freq_ok(r):
+        def iso_under_cap(r):
             n = r['Name']
             count = weekly_iso_count.get(n, 0)
             quals = sum(1 for c in CORE_ROLES if str(r.get(c, '')).strip().lower() == 'yes')
-            max_times = 1 if quals > 2 else 2
+            max_times = 2 if quals <= 2 else 1
             return count < max_times
 
         iso_pool_filtered = pick(pool, lambda r: r['ISO'].strip().lower() == 'yes'
                                   and r['Name'] not in reserved
-                                  and iso_freq_ok(r))
+                                  and iso_under_cap(r))
         iso_all = priority_names_excluding(iso_pool_filtered, assigned, exclude_set=prev_iso, reserve_cls=True, limit=len(ISO_ZONE_LIST), prefer_more_skills=True)
 
         float_pool_filtered = pick(pool, lambda r: r['FLOAT'].strip().lower() == 'yes'
@@ -848,7 +846,6 @@ if st.button("Generate Weekly Schedule"):
             if dkey == day and any('HZN POC Swap' in r or r == 'DNEasy/Mix-1' or r == 'DNEasy' for r in roles)
         )
 
-        # Update weekly ISO count
         for (dkey, n), roles in assign_map.items():
             if dkey == day and any(r.startswith('ISO Zone') for r in roles):
                 weekly_iso_count[n] = weekly_iso_count.get(n, 0) + 1
