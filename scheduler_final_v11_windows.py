@@ -80,23 +80,16 @@ def canon_basic(s: str) -> str:
     s = re.sub(r'\s+', ' ', s).strip()
     return s
 
-DATA_FILE = BASE_DIR / "today_active_workers_08APR2026.xlsx"
+DATA_FILE = BASE_DIR / "today_active_workers_corrected.csv"
 
 def load_data():
     if not os.path.exists(DATA_FILE):
         st.error(f"{DATA_FILE} not found.")
         return pd.DataFrame()
     try:
-        if str(DATA_FILE).endswith('.xlsx'):
-            df = pd.read_excel(DATA_FILE)
-        else:
-            try:
-                df = pd.read_csv(DATA_FILE, encoding="utf-8-sig")
-            except UnicodeDecodeError:
-                df = pd.read_csv(DATA_FILE, encoding="cp1252")
-    except Exception as e:
-        st.error(f"Could not load file: {e}")
-        return pd.DataFrame()
+        df = pd.read_csv(DATA_FILE, encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        df = pd.read_csv(DATA_FILE, encoding="cp1252")
     df.insert(0, '__roster_index', range(len(df)))
     df.columns = [c.strip() for c in df.columns]
     df = normalize_columns(df)
