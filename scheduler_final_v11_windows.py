@@ -169,6 +169,52 @@ for emp, days_ot in st.session_state.ot_by_day.items():
             st.session_state.ot_selected_name = emp
         st.markdown(", ".join(days_ot))
 
+# --- Training Pairs UI ---
+TRAINING_WORKFLOWS = ['QS', 'ISO', 'Floating', 'HZN', 'PGD', 'TIH', 'POC', 'DNEasy', 'TIU']
+ONE_ON_ONE_WORKFLOWS = ['QS', 'ISO']
+
+if 'training_pairs' not in st.session_state:
+    st.session_state.training_pairs = []
+
+st.subheader("Training Assignments")
+
+with st.expander("Add Training Pair"):
+    all_names = df['Name'].tolist()
+    tr_trainee = st.selectbox("Trainee", all_names, key="tr_trainee")
+    tr_trainer  = st.selectbox("Trainer",  all_names, key="tr_trainer")
+    tr_workflow = st.selectbox("Workflow being trained", TRAINING_WORKFLOWS, key="tr_workflow")
+
+    st.markdown("**Training Days**")
+    tr_days_state = {}
+    for d in ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']:
+        tr_days_state[d] = st.toggle(d, value=False, key=f"TR_{tr_trainee}_{tr_trainer}_{d}")
+    tr_days = [d for d, v in tr_days_state.items() if v]
+
+    if st.button("Add Training Pair"):
+        if tr_trainee == tr_trainer:
+            st.error("Trainee and trainer must be different people.")
+        elif not tr_days:
+            st.error("Select at least one training day.")
+        else:
+            st.session_state.training_pairs.append({
+                'trainee': tr_trainee,
+                'trainer': tr_trainer,
+                'workflow': tr_workflow,
+                'days': tr_days,
+            })
+            st.success(f"Added: {tr_trainer} training {tr_trainee} on {tr_workflow} — {', '.join(tr_days)}")
+
+if st.session_state.training_pairs:
+    st.markdown("### Current Training Pairs")
+    for i, pair in enumerate(st.session_state.training_pairs):
+        col1, col2 = st.columns([4,1])
+        with col1:
+            st.markdown(f"**{pair['trainer']} → {pair['trainee']}** | {pair['workflow']} | {', '.join(pair['days'])}")
+        with col2:
+            if st.button("Remove", key=f"remove_pair_{i}"):
+                st.session_state.training_pairs.pop(i)
+                st.rerun()
+
 DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
 IDX = {d:i for i, d in enumerate(DAYS)}
 
@@ -232,9 +278,16 @@ def is_not_pto(name, day):
 def is_overtime(name, day):
     return day in st.session_state.ot_by_day.get(name, [])
 
+def is_training_day(name, day):
+    for pair in st.session_state.get('training_pairs', []):
+        if name in (pair['trainee'], pair['trainer']) and day in pair['days']:
+            return True
+    return False
+
 def working_pool(day) -> pd.DataFrame:
     mask = df.apply(
-        lambda r: (is_on_shift(r, day) or is_overtime(r['Name'], day)) and is_not_pto(r['Name'], day),
+        lambda r: (is_on_shift(r, day) or is_overtime(r['Name'], day) or is_training_day(r['Name'], day))
+                  and is_not_pto(r['Name'], day),
         axis=1
     )
     pool = df[mask].copy()
@@ -636,6 +689,37 @@ if st.button("Generate Weekly Schedule"):
         # --- 0. Pre-reserve critical roles before ISO/Float/QS consumes everyone ---
         # Order matters: PGD first (smallest pool), then HZN EXT, then HZN POC Swap.
         # Each step excludes the previous to guarantee no double-assignments.
+        # --- Training pairs: assign first, lock both people in ---
+        # Trainer and trainee are both added to assigned so nothing else grabs them
+        training_display = {}  # name -> display override "Trainer:Trainee"
+        for pair in st.session_state.get('training_pairs', []):
+            if day not in pair['days']:
+                continue
+            trainee  = pair['trainee']
+            trainer  = pair['trainer']
+            workflow = pair['workflow']
+            # both must be in today's pool
+            if trainee not in working_names or trainer not in working_names:
+                continue
+            if trainer in assigned or trainee in assigned:
+                continue
+            # assign both to the training workflow
+            role_label = f'{workflow} Training'
+            assign_map[(day, trainer)].append(role_label)
+            assign_map[(day, trainee)].append(role_label)
+            assigned.add(trainer)
+            assigned.add(trainee)
+            # track for display override: show as "Trainer:Trainee"
+            training_display[trainer] = f'{trainer}:{trainee}'
+            training_display[trainee] = f'{trainer}:{trainee}'
+            # count toward weekly caps if applicable
+            if workflow == 'ISO' and day != 'Sun':
+                weekly_iso_count[trainer] = weekly_iso_count.get(trainer, 0) + 1
+                weekly_iso_count[trainee] = weekly_iso_count.get(trainee, 0) + 1
+            if workflow in ('POC', 'DNEasy'):
+                weekly_poc_used.add(trainer)
+                weekly_poc_used.add(trainee)
+
         pgd_reserved          = set()
         pgd_reserved_names    = []
         dne_reserved          = set()
@@ -885,7 +969,9 @@ if st.button("Generate Weekly Schedule"):
                 roles = [backup_label_for_row(row, day)]
 
             wf = " / ".join(roles) if len(roles) == 2 else ", ".join(roles)
-            today_rows.append((day, int(person['__roster_index']), name, wf))
+            # Use Trainer:Trainee display if this person is in a training pair today
+            display_name = training_display.get(name, name)
+            today_rows.append((day, int(person['__roster_index']), display_name, wf))
 
         if len(today_rows) != len(working_names):
             already = {n for _d, _idx, n, _w in today_rows}
