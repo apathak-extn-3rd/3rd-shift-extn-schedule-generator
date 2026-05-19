@@ -353,11 +353,22 @@ def zone_rank(workflow: str) -> int:
     if w.startswith('QS Zone '):
         z = w.replace('QS ', '')
         return QS_ZONE_ORDER.get(z, 999)
+    if w.startswith('Tecan Maintenance/Rack Disposal Zone '):
+        letter = w[-1]
+        return ord(letter) - ord('A')
+    if w.startswith('ISO Zone') or 'Zone A' in w or 'Zone B' in w:
+        # paired monday zones
+        letter = w.split('Zone ')[-1][0] if 'Zone ' in w else 'Z'
+        return ord(letter) - ord('A')
+    if w.startswith('Floater'):
+        # Floater A-G sort before Floater 1-2
+        m = re.search(r'Floater ([A-G])', w)
+        if m:
+            return ord(m.group(1)) - ord('A')
+        m = re.search(r'Floater (\d+)', w)
+        return 100 + int(m.group(1)) if m else 200
     if w.startswith('QS Floater'):
         return 1000
-    if w.startswith('Floater'):
-        m = re.search(r'(\d+)$', w)
-        return int(m.group(1)) if m else 1000
     return 500
 
 def _df_row_by_name(name: str):
