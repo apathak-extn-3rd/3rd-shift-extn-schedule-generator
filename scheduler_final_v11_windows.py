@@ -709,9 +709,9 @@ if st.button("Generate Weekly Schedule"):
             assign_map[(day, trainee)].append(role_label)
             assigned.add(trainer)
             assigned.add(trainee)
-            # track for display override: show as "Trainer:Trainee"
+            # track for display: only trainer row shows "Trainer:Trainee", trainee row hidden
             training_display[trainer] = f'{trainer}:{trainee}'
-            training_display[trainee] = f'{trainer}:{trainee}'
+            training_display[trainee] = '__HIDE__'
             # count toward weekly caps if applicable
             if workflow == 'ISO' and day != 'Sun':
                 weekly_iso_count[trainer] = weekly_iso_count.get(trainer, 0) + 1
@@ -971,6 +971,8 @@ if st.button("Generate Weekly Schedule"):
             wf = " / ".join(roles) if len(roles) == 2 else ", ".join(roles)
             # Use Trainer:Trainee display if this person is in a training pair today
             display_name = training_display.get(name, name)
+            if display_name == '__HIDE__':
+                continue
             today_rows.append((day, int(person['__roster_index']), display_name, wf))
 
         if len(today_rows) != len(working_names):
