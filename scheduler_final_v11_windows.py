@@ -547,62 +547,57 @@ def count_roles_for_day(assign_map, day, prefix):
         total += sum(1 for r in roles if str(r).startswith(prefix))
     return total
 
-def backup_label_for_row(row):
-    priority = [
-        ('QS', 'QS Backup'),
-        ('FLOAT', 'Floater Backup'),
-        ('ISO', 'ISO Backup'),
-        ('HZN', 'HZN Backup'),
-        ('TIH', 'TIH Backup'),
-        ('PGD', 'PGD Backup'),
-        ('TIU', 'TIU Backup'),
-        ('POC', 'POC Backup'),
-    ]
-    for col, label in priority:
-        if str(row.get(col, '')).strip().lower() == 'yes':
-            return label
-    return 'General Support'
+def backup_label_for_row(row, day=None):
+    # Everyone gets a real role — route extras to QS or Floater
+    if str(row.get('QS', '')).strip().lower() == 'yes':
+        return 'QS Support'
+    if str(row.get('FLOAT', '')).strip().lower() == 'yes':
+        return 'Floater'
+    return 'General Floater'
 
 def final_fill_no_unassigned(day, pool, assigned, assign_map):
+    # Everyone gets a real assignment — no backups ever
     working_names = set(pool['Name'])
     leftovers = sorted(
         list(working_names - assigned),
         key=lambda n: int(df.loc[df['Name'] == n, '__roster_index'].iloc[0])
     )
 
-    current_qs_floaters = count_roles_for_day(assign_map, day, 'QS Floater')
-    current_floaters = count_roles_for_day(assign_map, day, 'Floater')
+    # Count current QS zones filled so we can continue numbering
+    qs_zone_list_active = [z for z in QS_ZONE_LIST if z != 'Zone 5']
+    filled_qs = set()
+    for (dkey, _n), roles in assign_map.items():
+        if dkey == day:
+            for r in roles:
+                if r.startswith('QS Zone '):
+                    filled_qs.add(r.replace('QS ', '').strip())
+    next_qs_idx = len(filled_qs)
 
-    qs_leftovers = []
-    float_leftovers = []
-    other_leftovers = []
+    current_floaters = count_roles_for_day(assign_map, day, 'Floater')
+    zone_letters = ['A','B','C','D','E','F','G']
 
     for name in leftovers:
         row = _df_row_by_name(name)
-        qs_yes = str(row['QS']).strip().lower() == 'yes'
-        float_yes = str(row['FLOAT']).strip().lower() == 'yes'
+        qs_yes = str(row.get('QS', '')).strip().lower() == 'yes'
+        float_yes = str(row.get('FLOAT', '')).strip().lower() == 'yes'
 
-        if qs_yes:
-            qs_leftovers.append(name)
+        if qs_yes and next_qs_idx < len(qs_zone_list_active):
+            # Put them on the next available QS zone
+            assign_map[(day, name)].append(f'QS {qs_zone_list_active[next_qs_idx]}')
+            next_qs_idx += 1
         elif float_yes:
-            float_leftovers.append(name)
+            current_floaters += 1
+            if day in ['Sun', 'Mon']:
+                assign_map[(day, name)].append(f'General Floater')
+            else:
+                letter_idx = current_floaters - 1
+                label = f'Floater {zone_letters[letter_idx]}' if letter_idx < len(zone_letters) else f'Floater {letter_idx - len(zone_letters) + 1}'
+                assign_map[(day, name)].append(label)
+        elif qs_yes:
+            # QS qualified but all zones full — still put them on QS support
+            assign_map[(day, name)].append('QS Support')
         else:
-            other_leftovers.append(name)
-
-    for name in qs_leftovers:
-        # QS Floaters removed — route to backup instead
-        row = _df_row_by_name(name)
-        assign_map[(day, name)].append(backup_label_for_row(row))
-        assigned.add(name)
-
-    for name in float_leftovers:
-        current_floaters += 1
-        assign_map[(day, name)].append(f'Floater {current_floaters}')
-        assigned.add(name)
-
-    for name in other_leftovers:
-        row = _df_row_by_name(name)
-        assign_map[(day, name)].append(backup_label_for_row(row))
+            assign_map[(day, name)].append('General Floater')
         assigned.add(name)
 
 if st.button("Generate Weekly Schedule"):
@@ -876,7 +871,7 @@ if st.button("Generate Weekly Schedule"):
             roles = assign_map.get((day, name), []).copy()
             if not roles:
                 row = _df_row_by_name(name)
-                roles = [backup_label_for_row(row)]
+                roles = [backup_label_for_row(row, day)]
 
             wf = " / ".join(roles) if len(roles) == 2 else ", ".join(roles)
             today_rows.append((day, int(person['__roster_index']), name, wf))
