@@ -473,28 +473,31 @@ def enforce_qs_minimum(assign_map, day, pool, assigned):
                 return
 
 def enforce_tih_minimum(assign_map, day, pool, assigned):
-    have_tih = any(
-        d == day and any(r.startswith('TIH') for r in roles)
-        for (d, _n), roles in assign_map.items()
+    # Need at least 2 CLS/TIH people every day
+    current_tih = sum(
+        1 for (d, _n), roles in assign_map.items()
+        if d == day and any(r.startswith('TIH') for r in roles)
     )
-    if have_tih:
+    needed = max(0, 2 - current_tih)
+    if needed == 0:
         return
 
     cls_pool = pick(pool, lambda r: r['CLS'].strip().lower() == 'yes' and r['Name'] not in assigned)
     tih_cls_pool = pick(cls_pool, lambda r: r['TIH'].strip().lower() == 'yes')
-    names = priority_names(tih_cls_pool, assigned, reserve_cls=False, limit=1)
-    if names:
-        n = names[0]
+    names = priority_names(tih_cls_pool, assigned, reserve_cls=False, limit=needed)
+    for n in names:
         assign_map[(day, n)].append('TIH_CLS')
         assigned.add(n)
-        return
+        needed -= 1
 
-    _steal_from_qs(
-        assign_map,
-        day,
-        'TIH_CLS',
-        predicate=lambda row: row['TIH'] == 'yes' and row['CLS'] == 'yes'
-    )
+    # If still short, steal from highest QS zones
+    for _ in range(needed):
+        _steal_from_qs(
+            assign_map,
+            day,
+            'TIH_CLS',
+            predicate=lambda row: row['TIH'] == 'yes' and row['CLS'] == 'yes'
+        )
 
 def enforce_sun_mon_mins(assign_map, day, pool, assigned):
     have_tih = any(
@@ -587,8 +590,9 @@ def final_fill_no_unassigned(day, pool, assigned, assign_map):
             other_leftovers.append(name)
 
     for name in qs_leftovers:
-        current_qs_floaters += 1
-        assign_map[(day, name)].append(f'QS Floater {current_qs_floaters}')
+        # QS Floaters removed — route to backup instead
+        row = _df_row_by_name(name)
+        assign_map[(day, name)].append(backup_label_for_row(row))
         assigned.add(name)
 
     for name in float_leftovers:
@@ -634,6 +638,8 @@ if st.button("Generate Weekly Schedule"):
         hzn_ext_reserved_names = []
         hzn_poc_reserved      = set()
         swap_reserved         = []
+
+
 
         if day not in ['Sun', 'Mon']:
             # 1. PGD (1 person) — picked FIRST, added to assigned immediately so nothing steals them
@@ -780,22 +786,24 @@ if st.button("Generate Weekly Schedule"):
             for i, name in enumerate(iso_all[:n_pairs]):
                 safe_assign(assign_map, assigned, day, name, f'ISO {ISO_ZONE_LIST[i]}')
 
+            # Floaters labeled to match ISO zone letter (A-G), then 1-2 for extras
+            zone_letters = ['A','B','C','D','E','F','G']
             for i, name in enumerate(float_all[:n_pairs]):
-                safe_assign(assign_map, assigned, day, name, f'Floater {i+1}')
+                if i < len(zone_letters):
+                    label = f'Floater {zone_letters[i]}'
+                else:
+                    label = f'Floater {i - len(zone_letters) + 1}'
+                safe_assign(assign_map, assigned, day, name, label)
 
-        # --- 2. QS (Zones 1-13, strictly sequential, no gaps) ---
+        # --- 2. QS (Zones 1-13, skip Zone 5) ---
+        qs_zone_list_filtered = [z for z in QS_ZONE_LIST if z != 'Zone 5']
         qs_pool  = pick(pool, lambda r: r['QS'].strip().lower() == 'yes'
                         and r['Name'] not in assigned and r['Name'] not in reserved)
-        qs_names = priority_names(qs_pool, assigned, reserve_cls=True, limit=len(QS_ZONE_LIST))
+        qs_names = priority_names(qs_pool, assigned, reserve_cls=True, limit=len(qs_zone_list_filtered))
         for i, name in enumerate(qs_names):
-            safe_assign(assign_map, assigned, day, name, f'QS {QS_ZONE_LIST[i]}')
+            safe_assign(assign_map, assigned, day, name, f'QS {qs_zone_list_filtered[i]}')
 
-        # QS Floater
-        qs_floater_pool  = pick(pool, lambda r: r['QS'].strip().lower() == 'yes'
-                                 and r['Name'] not in assigned and r['Name'] not in reserved)
-        qs_floater_names = priority_names(qs_floater_pool, assigned, reserve_cls=True, limit=QS_BASE_FLOATER_COUNT_PER_DAY)
-        for idx, name in enumerate(qs_floater_names, start=1):
-            safe_assign(assign_map, assigned, day, name, f'QS Floater {idx}')
+        # QS Floaters removed — no longer assigned
 
         # --- 3. TIU ---
         cls_pool = pick(pool, lambda r: r['CLS'].strip().lower() == 'yes' and r['Name'] not in assigned)
