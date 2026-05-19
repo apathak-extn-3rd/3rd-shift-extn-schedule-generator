@@ -549,7 +549,7 @@ def count_roles_for_day(assign_map, day, prefix):
 
 def backup_label_for_row(row):
     priority = [
-        ('QS', 'QS Floater Backup'),
+        ('QS', 'QS Backup'),
         ('FLOAT', 'Floater Backup'),
         ('ISO', 'ISO Backup'),
         ('HZN', 'HZN Backup'),
