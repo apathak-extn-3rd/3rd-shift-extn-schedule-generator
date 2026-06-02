@@ -53,9 +53,9 @@ STD_COLS_MAP = {
     'shift': 'Shift',
     'iso': 'ISO', 'tiu': 'TIU', 'qs': 'QS', 'float': 'FLOAT',
     'cls': 'CLS', 'pgd': 'PGD', 'hzn': 'HZN', 'tih': 'TIH',
-    'poc': 'POC', 'cla': 'CLA',
+    'poc': 'POC', 'cla': 'CLA', 'cls trainee': 'CLS_TRAINEE',
 }
-REQUIRED_COLS = ['Name','Shift','ISO','TIU','QS','FLOAT','CLS','PGD','HZN','TIH','POC','CLA']
+REQUIRED_COLS = ['Name','Shift','ISO','TIU','QS','FLOAT','CLS','PGD','HZN','TIH','POC','CLA','CLS_TRAINEE']
 
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     new_cols = {}
@@ -295,7 +295,7 @@ def working_pool(day) -> pd.DataFrame:
         pool = df[df['Name'].apply(lambda n: is_not_pto(n, day))].copy()
     return pool
 
-CORE_ROLES = ['ISO','TIU','QS','FLOAT','CLS','PGD','HZN','TIH','POC','CLA']
+CORE_ROLES = ['ISO','TIU','QS','FLOAT','CLS','PGD','HZN','TIH','POC','CLA','CLS_TRAINEE']
 HZN_DNA_ROLE = 'HZN EXT/NORM/DIL'
 
 # 7 ISO zones (A-G), 13 QS zones (1-13)
@@ -536,31 +536,47 @@ def enforce_qs_minimum(assign_map, day, pool, assigned):
                 assign_map[(day, name)].append(zone_label)
                 return
 
+def is_cls_or_trainee(row):
+    cls = str(row.get('CLS','')).strip().lower() == 'yes'
+    trainee = str(row.get('CLS_TRAINEE','')).strip().lower() == 'yes'
+    return cls or trainee
+
 def enforce_tih_minimum(assign_map, day, pool, assigned):
-    # Need at least 2 CLS/TIH people every day
+    # Sun-Wed: need at least 2 CLS or CLS_TRAINEE on TIH
+    # Other days: need at least 1 CLS on TIH
+    if day in ['Sun','Mon','Tue','Wed']:
+        min_tih = 2
+    else:
+        min_tih = 1
+
     current_tih = sum(
         1 for (d, _n), roles in assign_map.items()
         if d == day and any(r.startswith('TIH') for r in roles)
     )
-    needed = max(0, 2 - current_tih)
+    needed = max(0, min_tih - current_tih)
     if needed == 0:
         return
 
-    cls_pool = pick(pool, lambda r: r['CLS'].strip().lower() == 'yes' and r['Name'] not in assigned)
-    tih_cls_pool = pick(cls_pool, lambda r: r['TIH'].strip().lower() == 'yes')
-    names = priority_names(tih_cls_pool, assigned, reserve_cls=False, limit=needed)
+    # Sun-Wed: CLS or CLS_TRAINEE qualifies; other days: CLS only
+    if day in ['Sun','Mon','Tue','Wed']:
+        tih_pool = pick(pool, lambda r: is_cls_or_trainee(r)
+                        and str(r.get('TIH','')).strip().lower() == 'yes'
+                        and r['Name'] not in assigned)
+    else:
+        tih_pool = pick(pool, lambda r: str(r.get('CLS','')).strip().lower() == 'yes'
+                        and str(r.get('TIH','')).strip().lower() == 'yes'
+                        and r['Name'] not in assigned)
+
+    names = priority_names(tih_pool, assigned, reserve_cls=False, limit=needed)
     for n in names:
         assign_map[(day, n)].append('TIH_CLS')
         assigned.add(n)
         needed -= 1
 
-    # If still short, steal from highest QS zones
     for _ in range(needed):
         _steal_from_qs(
-            assign_map,
-            day,
-            'TIH_CLS',
-            predicate=lambda row: row['TIH'] == 'yes' and row['CLS'] == 'yes'
+            assign_map, day, 'TIH_CLS',
+            predicate=lambda row: row.get('TIH','') == 'yes' and is_cls_or_trainee(row)
         )
 
 def enforce_sun_mon_mins(assign_map, day, pool, assigned):
@@ -925,6 +941,26 @@ if st.button("Generate Weekly Schedule"):
                 safe_assign(assign_map, assigned, day, name, 'HZN POC Swap (First Half HZN / Second Half POC)')
             for name in start_poc:
                 safe_assign(assign_map, assigned, day, name, 'HZN POC Swap (First Half POC / Second Half HZN)')
+
+        # Wednesday: ensure at least 2 CLS or CLS_TRAINEE on POC
+        if day == 'Wed':
+            current_poc = sum(
+                1 for (d, _n), roles in assign_map.items()
+                if d == day and any('HZN POC Swap' in r for r in roles)
+                and is_cls_or_trainee(_df_row_by_name(_n))
+            )
+            needed_poc = max(0, 2 - current_poc)
+            if needed_poc > 0:
+                poc_extra_pool = pick(
+                    pool,
+                    lambda r: is_cls_or_trainee(r)
+                              and str(r.get('POC','')).strip().lower() == 'yes'
+                              and str(r.get('HZN','')).strip().lower() == 'yes'
+                              and r['Name'] not in assigned
+                              and r['Name'] not in weekly_poc_used
+                )
+                for name in priority_names(poc_extra_pool, assigned, reserve_cls=False, limit=needed_poc):
+                    safe_assign(assign_map, assigned, day, name, 'HZN POC Swap (First Half POC / Second Half HZN)')
 
         # --- 5. DNEasy/Mix-1 (Tue-Sat, pre-reserved CLS+POC person) ---
         if day not in ['Sun','Mon']:
