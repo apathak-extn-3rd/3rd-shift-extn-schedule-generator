@@ -751,12 +751,12 @@ if st.button("Generate Weekly Schedule"):
         if day not in ['Sun', 'Mon']:
             # 1. PGD (1 person) — picked FIRST, added to assigned immediately so nothing steals them
             pgd_pool_all = pool[pool['PGD'] == 'yes'].copy()
-            # Prefer someone who hasn't done PGD at all this week, then fall back to not yesterday, then anyone
             pgd_candidates = [n for n in pgd_pool_all['Name'].tolist() if n not in weekly_pgd_used]
             if not pgd_candidates:
                 pgd_candidates = [n for n in pgd_pool_all['Name'].tolist() if n not in prev_pgd]
             if not pgd_candidates:
                 pgd_candidates = pgd_pool_all['Name'].tolist()
+            random.shuffle(pgd_candidates)
             pgd_pick = pgd_candidates[0] if pgd_candidates else None
             if pgd_pick:
                 pgd_reserved_names = [pgd_pick]
