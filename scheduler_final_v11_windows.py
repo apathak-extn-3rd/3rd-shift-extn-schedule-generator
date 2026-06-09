@@ -695,6 +695,7 @@ if st.button("Generate Weekly Schedule"):
     prev_qs = set()
     weekly_poc_used = set()  # tracks everyone who did POC this week
     weekly_iso_count = {}    # ISO count per person this week
+    weekly_pgd_used  = set() # tracks everyone who did PGD this week
     for day in days:
         pool = working_pool(day)
         working_names = set(pool['Name'])
@@ -750,7 +751,10 @@ if st.button("Generate Weekly Schedule"):
         if day not in ['Sun', 'Mon']:
             # 1. PGD (1 person) — picked FIRST, added to assigned immediately so nothing steals them
             pgd_pool_all = pool[pool['PGD'] == 'yes'].copy()
-            pgd_candidates = [n for n in pgd_pool_all['Name'].tolist() if n not in prev_pgd]
+            # Prefer someone who hasn't done PGD at all this week, then fall back to not yesterday, then anyone
+            pgd_candidates = [n for n in pgd_pool_all['Name'].tolist() if n not in weekly_pgd_used]
+            if not pgd_candidates:
+                pgd_candidates = [n for n in pgd_pool_all['Name'].tolist() if n not in prev_pgd]
             if not pgd_candidates:
                 pgd_candidates = pgd_pool_all['Name'].tolist()
             pgd_pick = pgd_candidates[0] if pgd_candidates else None
@@ -1042,6 +1046,7 @@ if st.button("Generate Weekly Schedule"):
         prev_pgd = set(
             [n for (dkey, n), roles in assign_map.items() if dkey == day and any(r == 'PGD' for r in roles)]
         )
+        weekly_pgd_used.update(prev_pgd)
         prev_hzn_ext = set(
             [n for (dkey, n), roles in assign_map.items() if dkey == day and any(r == 'HZN EXT/NORM/DIL' for r in roles)]
         )
