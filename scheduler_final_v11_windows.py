@@ -334,16 +334,18 @@ def priority_names(df_pool, already_assigned, reserve_cls=False, limit=None, pre
     if pool.empty:
         return []
 
-    rng_local = random.Random()
     pool = pool.assign(
         _yes_count=pool.apply(skills_count, axis=1),
-        _rand=pool['Name'].apply(lambda _: rng_local.random())
+        _rand=pool['Name'].apply(lambda _: random.random())
     )
 
     def take(frame, n=None):
-        # prefer_more_skills: versatile people go to ISO, leaving specialists free for other roles
-        asc = not prefer_more_skills
-        frame = frame.sort_values(['_yes_count', '_rand'], ascending=[asc, True])
+        if prefer_more_skills:
+            # More skilled people first, randomized within skill tiers
+            frame = frame.sort_values(['_yes_count', '_rand'], ascending=[False, True])
+        else:
+            # Pure random — skill count is irrelevant, everyone has equal chance
+            frame = frame.sort_values('_rand')
         names = frame['Name'].tolist()
         return names if n is None else names[:n]
 
@@ -374,6 +376,8 @@ def priority_names_excluding(df_pool, already_assigned, exclude_set=None, reserv
 def block_rank(workflow: str) -> float:
     # Display order: ISO > QS > PGD > TIH > HZN > Floater > POC
     w = str(workflow)
+    if w.startswith('Tecan Maintenance'):
+        return 1
     if w.startswith('ISO '):
         return 1
     if w.startswith('QS Zone '):
@@ -630,7 +634,7 @@ def count_roles_for_day(assign_map, day, prefix):
 def backup_label_for_row(row, day=None):
     # Everyone gets a real role — route extras to QS or Floater
     if str(row.get('QS', '')).strip().lower() == 'yes':
-        return 'QS Support'
+        return 'General Floater'
     if str(row.get('FLOAT', '')).strip().lower() == 'yes':
         return 'Floater'
     return 'General Floater'
@@ -654,7 +658,7 @@ def final_fill_no_unassigned(day, pool, assigned, assign_map):
     next_qs_idx = len(filled_qs)
 
     current_floaters = count_roles_for_day(assign_map, day, 'Floater')
-    zone_letters = ['A','B','C','D','E','F','G']
+    zone_letters = ['A','B','C','D','E','F','G','H']
 
     for name in leftovers:
         row = _df_row_by_name(name)
@@ -675,7 +679,7 @@ def final_fill_no_unassigned(day, pool, assigned, assign_map):
                 assign_map[(day, name)].append(label)
         elif qs_yes:
             # QS qualified but all zones full — still put them on QS support
-            assign_map[(day, name)].append('QS Support')
+            assign_map[(day, name)].append('General Floater')
         else:
             assign_map[(day, name)].append('General Floater')
         assigned.add(name)
@@ -835,7 +839,7 @@ if st.button("Generate Weekly Schedule"):
             sun_pool = pick(pool, lambda r: r['ISO'].strip().lower() == 'yes'
                             and r['FLOAT'].strip().lower() == 'yes'
                             and r['Name'] not in reserved)
-            sun_names = priority_names_excluding(sun_pool, assigned, exclude_set=prev_iso, reserve_cls=True, limit=7, prefer_more_skills=True)
+            sun_names = priority_names_excluding(sun_pool, assigned, exclude_set=prev_iso, reserve_cls=True, limit=len(ISO_ZONE_LIST), prefer_more_skills=True)
             for i, name in enumerate(sun_names):
                 safe_assign(assign_map, assigned, day, name, f'Tecan Maintenance/Rack Disposal {ISO_ZONE_LIST[i]}')
             iso_all = []
@@ -894,7 +898,7 @@ if st.button("Generate Weekly Schedule"):
                 safe_assign(assign_map, assigned, day, name, f'ISO {ISO_ZONE_LIST[i]}')
 
             # Floaters labeled to match ISO zone letter (A-G), then 1-2 for extras
-            zone_letters = ['A','B','C','D','E','F','G']
+            zone_letters = ['A','B','C','D','E','F','G','H']
             for i, name in enumerate(float_all[:n_pairs]):
                 if i < len(zone_letters):
                     label = f'Floater {zone_letters[i]}'
@@ -1020,7 +1024,7 @@ if st.button("Generate Weekly Schedule"):
                     day,
                     int(df.loc[df['Name'] == n, '__roster_index'].iloc[0]),
                     n,
-                    backup_label_for_row(row)
+                    backup_label_for_row(row, day)
                 ))
 
         # Update weekly POC tracker
