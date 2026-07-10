@@ -845,18 +845,15 @@ if st.button("Generate Weekly Schedule"):
             # Monday: paired zones — A+B, C+D, E+F (3 people), counts toward ISO cap
             mon_iso_pool = pick(pool, lambda r: r['ISO'].strip().lower() == 'yes' and r['Name'] not in reserved)
             mon_iso_capped = pick(mon_iso_pool, iso_under_cap)
-            mon_iso_filtered = mon_iso_capped if len(mon_iso_capped) >= 3 else mon_iso_pool
-            mon_iso_names = priority_names_excluding(mon_iso_filtered, assigned, exclude_set=prev_iso, reserve_cls=True, limit=3, prefer_more_skills=True)
-            zone_pairs = [('Zone A', 'Zone B'), ('Zone C', 'Zone D'), ('Zone E', 'Zone F')]
+            mon_iso_filtered = mon_iso_capped if len(mon_iso_capped) >= ISO_MIN else mon_iso_pool
+            mon_iso_names = priority_names_excluding(mon_iso_filtered, assigned, exclude_set=prev_iso, reserve_cls=True, limit=len(ISO_ZONE_LIST), prefer_more_skills=True)
             for i, name in enumerate(mon_iso_names):
-                if i < len(zone_pairs):
-                    za, zb = zone_pairs[i]
-                    safe_assign(assign_map, assigned, day, name, f'ISO {za} / {zb}')
+                safe_assign(assign_map, assigned, day, name, f'ISO {ISO_ZONE_LIST[i]}')
             # 2 Floaters on Monday
             mon_float_pool = pick(pool, lambda r: r['FLOAT'].strip().lower() == 'yes'
                                   and r['Name'] not in reserved
                                   and r['Name'] not in set(mon_iso_names))
-            mon_float_names = priority_names(mon_float_pool, assigned, reserve_cls=True, limit=2)
+            mon_float_names = priority_names(mon_float_pool, assigned, reserve_cls=True, limit=len(ISO_ZONE_LIST))
             for i, name in enumerate(mon_float_names):
                 safe_assign(assign_map, assigned, day, name, f'Floater {i+1}')
             iso_all = mon_iso_names
