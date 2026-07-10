@@ -299,7 +299,7 @@ CORE_ROLES = ['ISO','TIU','QS','FLOAT','CLS','PGD','HZN','TIH','POC','CLA','CLS_
 HZN_DNA_ROLE = 'HZN EXT/NORM/DIL'
 
 # 7 ISO zones (A-G), 13 QS zones (1-13)
-ISO_ZONE_LIST = [f'Zone {c}' for c in ['A','B','C','D','E','F','G']]
+ISO_ZONE_LIST = [f'Zone {c}' for c in ['A','B','C','D','E','F','G','H']]
 QS_ZONE_LIST = [f'Zone {i}' for i in range(1, 14)]
 
 ISO_ZONE_ORDER = {z:i+1 for i, z in enumerate(ISO_ZONE_LIST)}
