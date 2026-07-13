@@ -17,12 +17,10 @@ Salim,Mon–Fri,no,yes,yes,yes,yes,yes,yes,yes,yes,no,no
 Seren,Mon–Fri,no,yes,yes,yes,yes,yes,yes,yes,yes,no,no
 Poula,T-Sat,yes,no,yes,yes,yes,yes,yes,yes,yes,yes,no
 Tong,T-Sat,no,yes,yes,yes,yes,yes,yes,no,yes,no,no
-Madeline,T-Sat,no,yes,yes,yes,yes,yes,yes,yes,yes,no,no
 Joshua,T-Sat,yes,no,yes,yes,yes,yes,yes,no,yes,yes,no
 Adwait,T-Sat,no,yes,yes,yes,yes,yes,yes,yes,yes,no,no
 Jean,T-Sat,no,yes,yes,yes,yes,yes,yes,yes,yes,no,no
 Rica,T-Sat,no,yes,yes,yes,yes,yes,yes,yes,yes,no,no
-Eliza,T-Sat,yes,no,yes,yes,no,yes,no,no,yes,yes,no
 Sandra,T-Sat,yes,no,yes,yes,no,yes,no,no,yes,yes,no
 Menard,T-Sat,yes,no,yes,yes,no,yes,no,yes,yes,yes,no
 Henny,T-Sat,yes,no,yes,yes,no,no,no,no,yes,yes,no
@@ -32,10 +30,10 @@ Julie,T-Sat,no,yes,yes,yes,no,no,no,yes,yes,no,no
 Alvino,T-Sat,no,yes,yes,yes,no,no,yes,no,yes,no,no
 Joyce,T-Sat,yes,no,yes,yes,no,no,no,no,yes,yes,no
 Shane,T-Sat,yes,no,yes,yes,no,no,no,no,yes,yes,no
-Marc,T-Sat,yes,no,no,no,no,no,no,no,no,no,no
-Michael,T-Sat,yes,no,no,no,no,no,no,no,no,no,no
-Mitchell,W-Sun,no,yes,no,no,no,no,no,no,no,no,no
-Sean,W-Sun,no,yes,no,no,no,no,no,no,no,no,no
+Marc,T-Sat,yes,no,yes,yes,no,no,no,no,no,no,no
+Michael,T-Sat,yes,no,yes,yes,no,no,no,no,no,no,no
+Mitchell,W-Sun,no,yes,yes,yes,no,no,no,no,no,no,no
+Sean,W-Sun,no,yes,yes,yes,no,no,no,no,no,no,no
 Vincent,W-Sun,no,yes,yes,yes,yes,yes,yes,yes,yes,no,no
 Pranav,W-Sun,no,yes,yes,yes,yes,yes,yes,yes,yes,no,no
 Gama,W-Sun,no,yes,yes,yes,no,no,yes,no,yes,no,no
