@@ -545,6 +545,55 @@ def is_cls_or_trainee(row):
     trainee = str(row.get('CLS_TRAINEE','')).strip().lower() == 'yes'
     return cls or trainee
 
+def reserve_hzn_ext(day, pool, assigned, weekly_hzn_ext_used, weekly_poc_used, limit=3, swap_floor=4):
+    """Reserve HZN EXT/NORM/DIL people for the day, driven purely by roster qualifications.
+
+    Freshness beats everything: nobody repeats HZN EXT until every eligible person
+    on shift has done it this week. Within equal freshness, prefer in order:
+      tier 1: HZN-qualified, not POC-qualified
+      tier 2: HZN+POC qualified who already used their weekly POC slot
+              (they can't take the POC swap again, so EXT costs the swap nothing)
+      tier 3: HZN+POC qualified and still swap-eligible — only tapped while at
+              least `swap_floor` swap-eligible people remain for HZN POC Swap
+    On Sun/Mon there is no POC work, so all HZN-qualified people are fair game.
+    """
+    def _hzn(r): return str(r.get('HZN', '')).strip().lower() == 'yes'
+    def _poc(r): return str(r.get('POC', '')).strip().lower() == 'yes'
+
+    tier1 = pick(pool, lambda r: _hzn(r) and not _poc(r) and r['Name'] not in assigned)
+    if day in ('Sun', 'Mon'):
+        tier2 = pick(pool, lambda r: _hzn(r) and _poc(r) and r['Name'] not in assigned)
+        tier3 = pool.iloc[0:0]
+        tier3_budget = 0
+    else:
+        tier2 = pick(pool, lambda r: _hzn(r) and _poc(r)
+                     and r['Name'] in weekly_poc_used and r['Name'] not in assigned)
+        tier3 = pick(pool, lambda r: _hzn(r) and _poc(r)
+                     and r['Name'] not in weekly_poc_used and r['Name'] not in assigned)
+        tier3_budget = max(0, len(tier3) - swap_floor)
+
+    picked = []
+    for fresh in (True, False):
+        for tier_idx, tier_pool in enumerate((tier1, tier2, tier3)):
+            if len(picked) >= limit:
+                return picked
+            if tier_pool is None or tier_pool.empty:
+                continue
+            in_weekly = tier_pool['Name'].isin(weekly_hzn_ext_used)
+            seg = tier_pool[~in_weekly] if fresh else tier_pool[in_weekly]
+            if seg.empty:
+                continue
+            need = limit - len(picked)
+            if tier_idx == 2:
+                need = min(need, tier3_budget)
+                if need <= 0:
+                    continue
+            got = priority_names(seg, assigned.union(picked), reserve_cls=True, limit=need)
+            if tier_idx == 2:
+                tier3_budget -= len(got)
+            picked.extend(got)
+    return picked
+
 def enforce_tih_minimum(assign_map, day, pool, assigned):
     # Sun-Wed: need at least 2 CLS or CLS_TRAINEE on TIH
     # Other days: need at least 1 CLS on TIH
@@ -700,6 +749,7 @@ if st.button("Generate Weekly Schedule"):
     weekly_poc_used = set()  # tracks everyone who did POC this week
     weekly_iso_count = {}    # ISO count per person this week
     weekly_pgd_used  = set() # tracks everyone who did PGD this week
+    weekly_hzn_ext_used = set()  # tracks everyone who did HZN EXT this week
     for day in days:
         pool = working_pool(day)
         working_names = set(pool['Name'])
@@ -781,15 +831,10 @@ if st.button("Generate Weekly Schedule"):
             dne_reserved = set(dne_reserved_names)
             assigned.update(dne_reserved)  # lock in immediately
 
-            # 2. HZN EXT/NORM/DIL (2-3 people, non-POC preferred, exclude PGD person)
-            hzn_ext_reserve_pool = pick(
-                pool,
-                lambda r: r['HZN'].strip().lower() == 'yes'
-                          and r['POC'].strip().lower() != 'yes'
-                          and r['Name'] not in pgd_reserved
-            )
-            hzn_ext_reserved_names = priority_names_excluding(
-                hzn_ext_reserve_pool, assigned, exclude_set=prev_hzn_ext, reserve_cls=True, limit=3
+            # 2. HZN EXT/NORM/DIL (2-3 people) — non-POC preferred but not required,
+            # weekly rotation so nobody repeats before everyone eligible has gone
+            hzn_ext_reserved_names = reserve_hzn_ext(
+                day, pool, assigned, weekly_hzn_ext_used, weekly_poc_used, limit=3
             )
             hzn_ext_reserved = set(hzn_ext_reserved_names)
 
@@ -809,13 +854,10 @@ if st.button("Generate Weekly Schedule"):
             hzn_poc_reserved = set(swap_reserved)
 
         else:
-            # Sun/Mon: reserve 2-3 HZN EXT people (no POC swap, no PGD)
-            hzn_ext_reserve_pool = pick(
-                pool,
-                lambda r: r['HZN'].strip().lower() == 'yes' and r['POC'].strip().lower() != 'yes'
-            )
-            hzn_ext_reserved_names = priority_names_excluding(
-                hzn_ext_reserve_pool, assigned, exclude_set=prev_hzn_ext, reserve_cls=True, limit=3
+            # Sun/Mon: reserve 2-3 HZN EXT people. There is no POC work on these days,
+            # so every HZN-qualified person is eligible — no POC filter.
+            hzn_ext_reserved_names = reserve_hzn_ext(
+                day, pool, assigned, weekly_hzn_ext_used, weekly_poc_used, limit=3
             )
             hzn_ext_reserved = set(hzn_ext_reserved_names)
 
@@ -1051,6 +1093,7 @@ if st.button("Generate Weekly Schedule"):
         prev_hzn_ext = set(
             [n for (dkey, n), roles in assign_map.items() if dkey == day and any(r == 'HZN EXT/NORM/DIL' for r in roles)]
         )
+        weekly_hzn_ext_used.update(prev_hzn_ext)
         prev_hzn_poc = set(
             [n for (dkey, n), roles in assign_map.items() if dkey == day and any('HZN POC Swap' in r for r in roles)]
         )
