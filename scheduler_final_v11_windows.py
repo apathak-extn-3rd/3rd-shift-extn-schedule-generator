@@ -20,8 +20,7 @@ DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 ISO_ROWS = [f'Zone {c}' for c in 'ABCDEFGH']
 QS_ROWS = [f'Zone {i}' for i in range(1, 14) if i != 5]
 FLOATER_LETTER_ROWS = [f'Floater {c}' for c in 'ABCDEFGH']
-FLOATER_EXTRA_ROW = 'Floater (extra)'
-FLOATER_GENERAL_ROW = 'General Floater'
+FLOATER_NUMBERED_ROWS = [f'Floater {i}' for i in range(1, 11)]
 
 CATEGORY_ROWS = {
     'ISO / TECAN MAINT': ISO_ROWS,
@@ -31,7 +30,7 @@ CATEGORY_ROWS = {
     'PGD': ['PGD'],
     'TIH': ['TIH'],
     'TIU': ['TIU'],
-    'FLOATERS': FLOATER_LETTER_ROWS + [FLOATER_EXTRA_ROW, FLOATER_GENERAL_ROW],
+    'FLOATERS': FLOATER_LETTER_ROWS + FLOATER_NUMBERED_ROWS,
 }
 CATEGORY_ORDER = ['ISO / TECAN MAINT', 'QS AUTOMATED EXT', 'HORIZON', 'POC',
                    'PGD', 'TIH', 'TIU', 'FLOATERS', 'TRAINING']
@@ -75,9 +74,10 @@ def classify_role(token):
         m = re.search(r'Floater ([A-H])$', token)
         if m:
             return ('FLOATERS', f'Floater {m.group(1)}', None)
-        if re.search(r'Floater \d+$', token):
-            return ('FLOATERS', FLOATER_EXTRA_ROW, None)
-        return ('FLOATERS', FLOATER_GENERAL_ROW, None)
+        m2 = re.search(r'Floater (\d+)$', token)
+        if m2:
+            return ('FLOATERS', f'Floater {m2.group(1)}', None)
+        return ('FLOATERS', 'Floater 1', None)  # defensive fallback only
     if token.endswith('Training'):
         return ('TRAINING', token, None)
     return None
@@ -101,7 +101,7 @@ CSS = """
 .sched-outer { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   background: #0e1117; color: #e6e6e6; border-radius: 10px; overflow: hidden;
   border: 1px solid #2a3140; display: inline-block; max-width: 100%; }
-.sched-scroll { max-height: 74vh; overflow: auto; }
+.sched-scroll { overflow: visible; }
 .sched-table { border-collapse: separate; border-spacing: 0; font-size: 13px;
   table-layout: fixed; width: 1650px; max-width: 100%; }
 .sched-table col.role-col { width: 180px; }
@@ -163,10 +163,12 @@ def render_week_grid_html(grid, day_headcount=None):
                 continue
             subrow_labels = list(subrows_data.keys())
         else:
-            subrow_labels = CATEGORY_ROWS[cat]
-            if not subrows_data and cat not in grid:
-                # still show the skeleton so coverage gaps are visible
-                pass
+            subrow_labels = list(CATEGORY_ROWS[cat])
+            # Never silently drop someone the data actually has but the fixed
+            # skeleton didn't anticipate — append any such rows at the end.
+            for extra_subrow in subrows_data:
+                if extra_subrow not in subrow_labels:
+                    subrow_labels.append(extra_subrow)
 
         accent = CATEGORY_COLORS[cat]
         parts.append(
@@ -887,15 +889,16 @@ def count_roles_for_day(assign_map, day, prefix):
     return total
 
 def backup_label_for_row(row, day=None):
-    # Everyone gets a real role — route extras to QS or Floater
-    if str(row.get('QS', '')).strip().lower() == 'yes':
-        return 'General Floater'
-    if str(row.get('FLOAT', '')).strip().lower() == 'yes':
-        return 'Floater'
-    return 'General Floater'
+    # Defensive fallback only — final_fill_no_unassigned should always cover
+    # everyone before this is ever reached. Never the literal 'General
+    # Floater' string, regardless.
+    return 'Floater 1'
 
 def final_fill_no_unassigned(day, pool, assigned, assign_map):
-    # Everyone gets a real assignment — no backups ever
+    # Everyone gets a real assignment — no backups ever, and never the bare
+    # 'General Floater' string. Anyone left over after QS zones are full
+    # gets the next sequential Floater N slot — Floater 1, Floater 2, and
+    # so on for however many people that turns out to be that day.
     working_names = set(pool['Name'])
     leftovers = sorted(
         list(working_names - assigned),
@@ -912,31 +915,19 @@ def final_fill_no_unassigned(day, pool, assigned, assign_map):
                     filled_qs.add(r.replace('QS ', '').strip())
     next_qs_idx = len(filled_qs)
 
-    current_floaters = count_roles_for_day(assign_map, day, 'Floater')
-    zone_letters = ['A','B','C','D','E','F','G','H']
+    overflow_counter = 0
 
     for name in leftovers:
         row = _df_row_by_name(name)
         qs_yes = str(row.get('QS', '')).strip().lower() == 'yes'
-        float_yes = str(row.get('FLOAT', '')).strip().lower() == 'yes'
 
         if qs_yes and next_qs_idx < len(qs_zone_list_active):
             # Put them on the next available QS zone
             assign_map[(day, name)].append(f'QS {qs_zone_list_active[next_qs_idx]}')
             next_qs_idx += 1
-        elif float_yes:
-            current_floaters += 1
-            if day in ['Sun', 'Mon']:
-                assign_map[(day, name)].append(f'General Floater')
-            else:
-                letter_idx = current_floaters - 1
-                label = f'Floater {zone_letters[letter_idx]}' if letter_idx < len(zone_letters) else f'Floater {letter_idx - len(zone_letters) + 1}'
-                assign_map[(day, name)].append(label)
-        elif qs_yes:
-            # QS qualified but all zones full — still put them on QS support
-            assign_map[(day, name)].append('General Floater')
         else:
-            assign_map[(day, name)].append('General Floater')
+            overflow_counter += 1
+            assign_map[(day, name)].append(f'Floater {overflow_counter}')
         assigned.add(name)
 
 if st.button("Generate Weekly Schedule"):
