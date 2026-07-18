@@ -98,44 +98,57 @@ def build_grid(role_long):
 
 
 CSS = """
-.sched-wrap { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+.sched-outer { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   background: #0e1117; color: #e6e6e6; border-radius: 10px; overflow: hidden;
-  border: 1px solid #232936; }
-.sched-table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
-.sched-table col.role-col { width: 15%; }
+  border: 1px solid #2a3140; display: inline-block; max-width: 100%; }
+.sched-scroll { max-height: 74vh; overflow: auto; }
+.sched-table { border-collapse: separate; border-spacing: 0; font-size: 13px;
+  table-layout: fixed; width: 1650px; max-width: 100%; }
+.sched-table col.role-col { width: 180px; }
+.sched-table col.day-col { width: 210px; }
 .sched-table thead th { position: sticky; top: 0; z-index: 3; background: #161b22;
   color: #8b949e; font-weight: 600; font-size: 11px; letter-spacing: .04em;
-  text-transform: uppercase; padding: 10px 8px; border-bottom: 1px solid #232936;
-  text-align: center; }
-.sched-table thead th.role-head { text-align: left; left: 0; z-index: 4; }
-.sched-table thead .headcount { display: block; margin-top: 2px; font-size: 15px;
+  text-transform: uppercase; padding: 10px 12px; text-align: center;
+  border-bottom: 1px solid #2a3140; border-left: 1px solid #1c212b; }
+.sched-table thead th:first-child { border-left: none; }
+.sched-table thead th.role-head { text-align: left; left: 0; z-index: 4; background: #161b22; }
+.sched-table thead .headcount { display: block; margin-top: 2px; font-size: 16px;
   font-weight: 700; color: #e6e6e6; letter-spacing: 0; text-transform: none; }
-.sched-table tbody td, .sched-table tbody th { padding: 7px 8px; border-bottom: 1px solid #1c212b;
-  vertical-align: middle; }
-.sched-table tbody tr:hover td, .sched-table tbody tr:hover th { background: #171c26; }
-.cat-row td { background: var(--accent-bg); padding: 6px 10px; font-size: 11px;
-  font-weight: 700; letter-spacing: .06em; color: var(--accent); text-transform: uppercase;
-  border-top: 1px solid #232936; border-bottom: 1px solid #232936; }
+.sched-table tbody td, .sched-table tbody th { padding: 8px 12px;
+  border-bottom: 1px solid #1c212b; border-left: 1px solid #1c212b;
+  vertical-align: top; line-height: 1.65; }
+.sched-table tbody td:first-child, .sched-table tbody th:first-child { border-left: none; }
+.sched-table tbody tr:not(.cat-row):nth-child(even) td,
+.sched-table tbody tr:not(.cat-row):nth-child(even) th { background: #10141b; }
+.sched-table tbody tr:not(.cat-row):hover td,
+.sched-table tbody tr:not(.cat-row):hover th { background: #1b2230; }
+.cat-row th, .cat-row td { background: var(--accent-bg) !important; padding: 6px 12px;
+  font-size: 11px; font-weight: 700; letter-spacing: .07em; color: var(--accent);
+  text-transform: uppercase; border-top: 1px solid #2a3140; border-bottom: 1px solid #2a3140;
+  border-left: none; }
 .role-cell { position: sticky; left: 0; background: #12161f; z-index: 2;
-  border-left: 3px solid var(--accent); font-weight: 500; color: #c9d1d9;
+  border-left: 4px solid var(--accent) !important; font-weight: 500; color: #c9d1d9;
   white-space: nowrap; }
+.sched-table tbody tr:not(.cat-row):nth-child(even) .role-cell { background: #14181f; }
+.sched-table tbody tr:not(.cat-row):hover .role-cell { background: #1c2330; }
 .cell-name { color: #e6e6e6; }
-.cell-empty { color: #4b5361; text-align: center; }
-.tag { display: inline-block; margin-left: 4px; padding: 1px 5px; border-radius: 3px;
-  font-size: 10px; font-weight: 700; background: #232936; color: #8b949e; }
-.name-sep { color: #4b5361; }
+.cell-empty { color: #454c59; text-align: center; }
+.tag { display: inline-block; margin-left: 3px; padding: 1px 5px; border-radius: 3px;
+  font-size: 10px; font-weight: 700; background: #263041; color: #9fb0c9; white-space: nowrap; }
+.name-sep { color: #454c59; }
 .legend { display: flex; flex-wrap: wrap; gap: 14px; padding: 10px 14px; background: #161b22;
-  border-top: 1px solid #232936; font-size: 11px; color: #8b949e; }
+  border-top: 1px solid #2a3140; font-size: 11px; color: #8b949e; }
 .legend .dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px;
   margin-right: 5px; vertical-align: middle; }
 """
 
 
 def render_week_grid_html(grid, day_headcount=None):
-    """Returns a <div class='sched-wrap'>...</div> fragment (CSS included via <style>)."""
+    """Returns a <div class='sched-outer'>...</div> fragment (CSS included via <style>)."""
     day_headcount = day_headcount or {}
-    parts = [f"<style>{CSS}</style>", "<div class='sched-wrap'><table class='sched-table'>"]
-    parts.append("<colgroup><col class='role-col'>" + "<col>" * 7 + "</colgroup>")
+    parts = [f"<style>{CSS}</style>",
+             "<div class='sched-outer'><div class='sched-scroll'><table class='sched-table'>"]
+    parts.append("<colgroup><col class='role-col'>" + "<col class='day-col'>" * 7 + "</colgroup>")
     parts.append("<thead><tr><th class='role-head'>Role / zone</th>")
     for d in DAYS:
         hc = day_headcount.get(d, '')
@@ -157,7 +170,7 @@ def render_week_grid_html(grid, day_headcount=None):
 
         accent = CATEGORY_COLORS[cat]
         parts.append(
-            f"<tr class='cat-row' style='--accent:{accent}; --accent-bg:{accent}1a'>"
+            f"<tr class='cat-row' style='--accent:{accent}; --accent-bg:{accent}26'>"
             f"<td colspan='8'>{cat}</td></tr>"
         )
         for subrow in subrow_labels:
@@ -173,7 +186,7 @@ def render_week_grid_html(grid, day_headcount=None):
                     parts.append("<td class='cell-empty'>\u2014</td>")
             parts.append("</tr>")
 
-    parts.append("</tbody></table>")
+    parts.append("</tbody></table></div>")
     parts.append(
         "<div class='legend'>" +
         "".join(
@@ -771,7 +784,17 @@ def reserve_hzn_ext(day, pool, assigned, weekly_hzn_ext_used, weekly_poc_used, l
             picked.extend(got)
     return picked
 
-def enforce_tih_minimum(assign_map, day, pool, assigned):
+def enforce_tih_minimum(assign_map, day, pool, assigned, tih_reserved_names=None):
+    # Commit the people already reserved upfront for TIH (see the
+    # tih_reserved block before ISO/Float/QS). They were locked into
+    # `assigned` at reservation time to keep ISO/Float/QS/PGD off them, so
+    # this must be a raw append (matching the PGD/DNE commit pattern) —
+    # safe_assign would refuse to act on a name already in `assigned` and
+    # silently drop the role, leaving them reserved but never actually
+    # placed on TIH. Everything below is a shortage fallback.
+    for n in (tih_reserved_names or []):
+        assign_map[(day, n)].append('TIH_CLS')
+
     # Sun-Wed: need at least 2 CLS or CLS_TRAINEE on TIH
     # Other days: need at least 1 CLS on TIH
     if day in ['Sun','Mon','Tue','Wed']:
@@ -980,11 +1003,26 @@ if st.button("Generate Weekly Schedule"):
         hzn_poc_reserved      = set()
         swap_reserved         = []
 
-
+        # --- TIH minimum, reserved FIRST for every day (2 on Sun-Wed, 1 on
+        # Thu-Sat) — same upfront-reservation pattern PGD/HZN use below. If
+        # this ran late instead (the old behavior), ISO/Float/QS could
+        # already have consumed the whole crew — a real problem on
+        # Monday's ~20-person shift — forcing TIH to steal an
+        # already-assigned QS person as its only option.
+        tih_min_today = 2 if day in ['Sun', 'Mon', 'Tue', 'Wed'] else 1
+        if day in ['Sun', 'Mon', 'Tue', 'Wed']:
+            tih_reserve_pool = pick(pool, lambda r: is_cls_or_trainee(r)
+                                     and str(r.get('TIH', '')).strip().lower() == 'yes')
+        else:
+            tih_reserve_pool = pick(pool, lambda r: str(r.get('CLS', '')).strip().lower() == 'yes'
+                                     and str(r.get('TIH', '')).strip().lower() == 'yes')
+        tih_reserved_names = priority_names(tih_reserve_pool, assigned, reserve_cls=False, limit=tih_min_today)
+        tih_reserved = set(tih_reserved_names)
+        assigned.update(tih_reserved)  # lock in immediately so nothing downstream can steal them
 
         if day not in ['Sun', 'Mon']:
             # 1. PGD (1 person) — picked FIRST, added to assigned immediately so nothing steals them
-            pgd_pool_all = pool[pool['PGD'] == 'yes'].copy()
+            pgd_pool_all = pool[(pool['PGD'] == 'yes') & (~pool['Name'].isin(assigned))].copy()
             pgd_candidates = [n for n in pgd_pool_all['Name'].tolist() if n not in weekly_pgd_used]
             if not pgd_candidates:
                 pgd_candidates = [n for n in pgd_pool_all['Name'].tolist() if n not in prev_pgd]
@@ -1043,7 +1081,7 @@ if st.button("Generate Weekly Schedule"):
 
         # --- 1. ISO + Floater paired assignment, then QS ---
         # reserved set: nobody in here can be touched by ISO/Float/QS
-        reserved = hzn_poc_reserved | hzn_ext_reserved | pgd_reserved | dne_reserved
+        reserved = hzn_poc_reserved | hzn_ext_reserved | pgd_reserved | dne_reserved | tih_reserved
 
         ISO_MIN = 4
         QS_MIN  = 4
@@ -1068,20 +1106,22 @@ if st.button("Generate Weekly Schedule"):
             float_all = []
 
         elif day == 'Mon':
-            # Monday: paired zones — A+B, C+D, E+F (3 people), counts toward ISO cap
+            # Monday: build ISO/Float candidate pools same as Tue-Sat — do NOT
+            # commit them here. Committing early (the old behavior) claimed up
+            # to 8 ISO + 8 Float unconditionally out of Monday's ~20-person
+            # crew, leaving as little as 1 person for all 12 QS zones. Letting
+            # these fall through to the shared n_pairs/QS-floor expansion
+            # below (same mechanism Tue-Sat already uses) is what actually
+            # keeps QS staffed.
             mon_iso_pool = pick(pool, lambda r: r['ISO'].strip().lower() == 'yes' and r['Name'] not in reserved)
             mon_iso_capped = pick(mon_iso_pool, iso_under_cap)
             mon_iso_filtered = mon_iso_capped if len(mon_iso_capped) >= ISO_MIN else mon_iso_pool
             mon_iso_names = priority_names_excluding(mon_iso_filtered, assigned, exclude_set=prev_iso, reserve_cls=True, limit=len(ISO_ZONE_LIST), prefer_more_skills=True)
-            for i, name in enumerate(mon_iso_names):
-                safe_assign(assign_map, assigned, day, name, f'ISO {ISO_ZONE_LIST[i]}')
-            # 2 Floaters on Monday
+
             mon_float_pool = pick(pool, lambda r: r['FLOAT'].strip().lower() == 'yes'
                                   and r['Name'] not in reserved
                                   and r['Name'] not in set(mon_iso_names))
-            mon_float_names = priority_names(mon_float_pool, assigned, reserve_cls=True, limit=len(ISO_ZONE_LIST))
-            for i, name in enumerate(mon_float_names):
-                safe_assign(assign_map, assigned, day, name, f'Floater {i+1}')
+            mon_float_names = priority_names(mon_float_pool, assigned | set(mon_iso_names), reserve_cls=True, limit=len(ISO_ZONE_LIST))
             iso_all = mon_iso_names
             float_all = mon_float_names
 
@@ -1114,8 +1154,10 @@ if st.button("Generate Weekly Schedule"):
             else:
                 break
 
-        # Commit ISO/Float — only for Tue-Sat (Sun/Mon handled above)
-        if day not in ['Sun', 'Mon']:
+        # Commit ISO/Float — Sunday is handled separately above (Tecan Maint,
+        # no QS that day at all). Monday now shares this QS-aware commit path
+        # with Tue-Sat instead of pre-claiming people before QS gets a look.
+        if day != 'Sun':
             for i, name in enumerate(iso_all[:n_pairs]):
                 safe_assign(assign_map, assigned, day, name, f'ISO {ISO_ZONE_LIST[i]}')
 
@@ -1139,7 +1181,13 @@ if st.button("Generate Weekly Schedule"):
         # QS Floaters removed — no longer assigned
 
         # --- 3. TIU ---
-        cls_pool = pick(pool, lambda r: r['CLS'].strip().lower() == 'yes' and r['Name'] not in assigned)
+        # Must exclude `reserved`, not just `assigned` — HZN EXT/HZN POC swap
+        # people are held in `reserved` but aren't locked into `assigned`
+        # until their own commit step runs later in this loop. Without this,
+        # TIU could poach one of them first and silently leave Horizon a
+        # person short every day this collision hit.
+        cls_pool = pick(pool, lambda r: r['CLS'].strip().lower() == 'yes'
+                        and r['Name'] not in assigned and r['Name'] not in reserved)
         tiu_pool = pick(cls_pool, lambda r: r['TIU'].strip().lower() == 'yes')
         if day == 'Mon':
             # Monday: 1 CLS on TIU/Stickers
@@ -1195,7 +1243,7 @@ if st.button("Generate Weekly Schedule"):
                 assign_map[(day, name)].append('DNEasy/Mix-1')
 
         # --- 6. TIH enforcement ---
-        enforce_tih_minimum(assign_map, day, pool, assigned)
+        enforce_tih_minimum(assign_map, day, pool, assigned, tih_reserved_names)
 
         tih_cla_pool = pick(
             pool,
