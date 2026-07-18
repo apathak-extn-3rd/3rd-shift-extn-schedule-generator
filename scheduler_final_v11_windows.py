@@ -517,7 +517,7 @@ def pick(df_in, cond):
     mask = df_in.apply(safe_cond, axis=1)
     return df_in[mask.reindex(df_in.index, fill_value=False)]
 
-def priority_names(df_pool, already_assigned, reserve_cls=False, limit=None, prefer_more_skills=False):
+def priority_names(df_pool, already_assigned, reserve_cls=False, limit=None, prefer_more_skills=False, prefer_no_float=False):
     if df_pool is None or df_pool.empty:
         return []
     pool = df_pool[~df_pool['Name'].isin(already_assigned)].copy()
@@ -526,16 +526,22 @@ def priority_names(df_pool, already_assigned, reserve_cls=False, limit=None, pre
 
     pool = pool.assign(
         _yes_count=pool.apply(skills_count, axis=1),
+        _has_float=pool['FLOAT'].astype(str).str.strip().str.lower().eq('yes'),
         _rand=pool['Name'].apply(lambda _: random.random())
     )
 
     def take(frame, n=None):
+        # People with no Float fallback go first when prefer_no_float is set —
+        # they have nowhere else to land if they miss this pool. Float-qualified
+        # people have a safe landing spot (Floater) either way, so they yield.
+        sort_cols, sort_asc = [], []
+        if prefer_no_float:
+            sort_cols.append('_has_float'); sort_asc.append(True)
         if prefer_more_skills:
-            # More skilled people first, randomized within skill tiers
-            frame = frame.sort_values(['_yes_count', '_rand'], ascending=[False, True])
+            sort_cols += ['_yes_count', '_rand']; sort_asc += [False, True]
         else:
-            # Pure random — skill count is irrelevant, everyone has equal chance
-            frame = frame.sort_values('_rand')
+            sort_cols += ['_rand']; sort_asc += [True]
+        frame = frame.sort_values(sort_cols, ascending=sort_asc)
         names = frame['Name'].tolist()
         return names if n is None else names[:n]
 
@@ -551,17 +557,17 @@ def priority_names(df_pool, already_assigned, reserve_cls=False, limit=None, pre
 
     return take(pool, limit)
 
-def priority_names_excluding(df_pool, already_assigned, exclude_set=None, reserve_cls=False, limit=None, prefer_more_skills=False):
+def priority_names_excluding(df_pool, already_assigned, exclude_set=None, reserve_cls=False, limit=None, prefer_more_skills=False, prefer_no_float=False):
     exclude_set = exclude_set or set()
     if df_pool is None or df_pool.empty:
         return []
     base = df_pool[~df_pool['Name'].isin(exclude_set)]
-    primary = priority_names(base, already_assigned, reserve_cls, limit, prefer_more_skills)
+    primary = priority_names(base, already_assigned, reserve_cls, limit, prefer_more_skills, prefer_no_float)
     if limit is None or len(primary) >= limit:
         return primary
     need = limit - len(primary)
     topup = df_pool[df_pool['Name'].isin(exclude_set)]
-    return primary + priority_names(topup, already_assigned.union(set(primary)), reserve_cls, need, prefer_more_skills)
+    return primary + priority_names(topup, already_assigned.union(set(primary)), reserve_cls, need, prefer_more_skills, prefer_no_float)
 
 def block_rank(workflow: str) -> float:
     # Display order: ISO > QS > PGD > TIH > HZN > Floater > POC
@@ -1106,24 +1112,19 @@ if st.button("Generate Weekly Schedule"):
             float_all = []
 
         elif day == 'Mon':
-            # Monday: build ISO/Float candidate pools same as Tue-Sat — do NOT
-            # commit them here. Committing early (the old behavior) claimed up
-            # to 8 ISO + 8 Float unconditionally out of Monday's ~20-person
-            # crew, leaving as little as 1 person for all 12 QS zones. Letting
-            # these fall through to the shared n_pairs/QS-floor expansion
-            # below (same mechanism Tue-Sat already uses) is what actually
-            # keeps QS staffed.
+            # Monday spec (explicit): 4 people cover all 8 ISO zones in pairs —
+            # one person on A/B, one on C/D, one on E/F, one on G/H. No
+            # separate Monday floaters; the pairing itself is the coverage.
+            ISO_PAIRS = [('Zone A', 'Zone B'), ('Zone C', 'Zone D'),
+                         ('Zone E', 'Zone F'), ('Zone G', 'Zone H')]
             mon_iso_pool = pick(pool, lambda r: r['ISO'].strip().lower() == 'yes' and r['Name'] not in reserved)
-            mon_iso_capped = pick(mon_iso_pool, iso_under_cap)
-            mon_iso_filtered = mon_iso_capped if len(mon_iso_capped) >= ISO_MIN else mon_iso_pool
-            mon_iso_names = priority_names_excluding(mon_iso_filtered, assigned, exclude_set=prev_iso, reserve_cls=True, limit=len(ISO_ZONE_LIST), prefer_more_skills=True)
-
-            mon_float_pool = pick(pool, lambda r: r['FLOAT'].strip().lower() == 'yes'
-                                  and r['Name'] not in reserved
-                                  and r['Name'] not in set(mon_iso_names))
-            mon_float_names = priority_names(mon_float_pool, assigned | set(mon_iso_names), reserve_cls=True, limit=len(ISO_ZONE_LIST))
-            iso_all = mon_iso_names
-            float_all = mon_float_names
+            mon_iso_names = priority_names_excluding(
+                mon_iso_pool, assigned, exclude_set=prev_iso, reserve_cls=True,
+                limit=len(ISO_PAIRS), prefer_more_skills=True
+            )
+            for (z1, z2), name in zip(ISO_PAIRS, mon_iso_names):
+                safe_assign(assign_map, assigned, day, name, f'ISO {z1}/{z2}')
+            iso_all, float_all = [], []
 
         else:
             # Tue-Sat: normal ISO + Float assignment with weekly cap
@@ -1154,10 +1155,9 @@ if st.button("Generate Weekly Schedule"):
             else:
                 break
 
-        # Commit ISO/Float — Sunday is handled separately above (Tecan Maint,
-        # no QS that day at all). Monday now shares this QS-aware commit path
-        # with Tue-Sat instead of pre-claiming people before QS gets a look.
-        if day != 'Sun':
+        # Commit ISO/Float — Sun and Mon are both handled directly above
+        # (Tecan Maint / paired zones), with no separate Floater step.
+        if day not in ['Sun', 'Mon']:
             for i, name in enumerate(iso_all[:n_pairs]):
                 safe_assign(assign_map, assigned, day, name, f'ISO {ISO_ZONE_LIST[i]}')
 
@@ -1174,7 +1174,9 @@ if st.button("Generate Weekly Schedule"):
         qs_zone_list_filtered = [z for z in QS_ZONE_LIST if z != 'Zone 5']
         qs_pool  = pick(pool, lambda r: r['QS'].strip().lower() == 'yes'
                         and r['Name'] not in assigned and r['Name'] not in reserved)
-        qs_names = priority_names(qs_pool, assigned, reserve_cls=True, limit=len(qs_zone_list_filtered))
+        # Monday spec: 4 zones stay deliberately empty (8 filled of 12).
+        qs_limit_today = 8 if day == 'Mon' else len(qs_zone_list_filtered)
+        qs_names = priority_names(qs_pool, assigned, reserve_cls=True, limit=qs_limit_today)
         for i, name in enumerate(qs_names):
             safe_assign(assign_map, assigned, day, name, f'QS {qs_zone_list_filtered[i]}')
 
@@ -1280,7 +1282,15 @@ if st.button("Generate Weekly Schedule"):
                 if token.endswith('Training') and ':' in str(disp):
                     trainer_name, trainee_name = disp.split(':', 1)
                     role_long.append((day, f'{trainer_name} \u2192 {trainee_name}', token))
-                elif not token.endswith('Training'):
+                elif token.endswith('Training'):
+                    continue
+                elif token.startswith('ISO ') and '/Zone ' in token:
+                    # Monday's paired zones ("ISO Zone A/Zone B") — one person
+                    # covering two zones. Show them in both zone rows.
+                    z1, z2 = token[len('ISO '):].split('/')
+                    role_long.append((day, name, f'ISO {z1}'))
+                    role_long.append((day, name, f'ISO {z2}'))
+                else:
                     role_long.append((day, name, token))
 
         today_rows = []
