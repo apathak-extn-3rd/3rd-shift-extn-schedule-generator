@@ -32,6 +32,8 @@ Joyce,T-Sat,yes,no,yes,yes,no,no,no,no,yes,yes,no
 Shane,T-Sat,yes,no,yes,yes,no,no,no,no,yes,yes,no
 Marc,T-Sat,yes,no,yes,yes,no,no,no,no,no,no,no
 Michael,T-Sat,yes,no,yes,yes,no,no,no,no,no,no,no
+Thomas,T-Sat,no,yes,yes,yes,no,no,no,yes,yes,no,no
+Dalya,T-Sat,no,yes,yes,yes,yes,no,no,no,yes,no,no
 Mitchell,W-Sun,no,yes,yes,yes,no,no,no,no,no,no,no
 Sean,W-Sun,no,yes,yes,yes,no,no,no,no,no,no,no
 Vincent,W-Sun,no,yes,yes,yes,yes,yes,yes,yes,yes,no,no
@@ -44,8 +46,6 @@ Diego,W-Sun,no,yes,yes,yes,no,no,no,yes,yes,no,no
 Owen,W-Sun,no,yes,yes,yes,yes,no,no,no,yes,no,no
 Paul,W-Sun,no,yes,yes,yes,no,no,no,yes,yes,no,no
 Preet,W-Sun,no,yes,yes,yes,yes,no,no,no,yes,no,no
-Thomas,W-Sun,no,yes,yes,yes,no,no,no,yes,yes,no,no
-Dalya,W-Sun,no,yes,yes,yes,yes,no,no,no,yes,no,no
 Lindy,Sat-W,no,yes,yes,yes,yes,yes,yes,yes,yes,no,no
 Guillermo,Sat-W,no,yes,yes,yes,yes,yes,yes,yes,yes,no,no
 Arian,Sat-W,no,yes,yes,yes,yes,yes,yes,yes,yes,no,no
