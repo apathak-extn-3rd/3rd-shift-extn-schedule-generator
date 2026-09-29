@@ -1,0 +1,12 @@
+# Save this file as  .streamlit/config.toml  next to app.py so Streamlit's own
+# widgets (sidebar, selects, buttons) match the board's palette.
+[theme]
+base = "dark"
+primaryColor = "#7aa2f7"
+backgroundColor = "#0f1522"
+secondaryBackgroundColor = "#161e2e"
+textColor = "#dce3ef"
+font = "sans serif"
+
+[server]
+runOnSave = true
